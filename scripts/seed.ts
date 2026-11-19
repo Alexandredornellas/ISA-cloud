@@ -23,6 +23,7 @@ async function main() {
   const plan: Plan = {
     summary: "A new login page for the customer portal with multi-factor authentication.",
     projectName: "Customer portal login",
+    people: [{ name: "Alexandre", email: null, slackUserId: null, role: "Product owner" }],
     requirementChanges: [
       {
         ref: "R1",

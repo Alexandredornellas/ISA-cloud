@@ -43,6 +43,7 @@ function fakeJira() {
 const newProjectPlan: Plan = {
   summary: "Login page with MFA",
   projectName: "Login",
+  people: [],
   requirementChanges: [
     { ref: "R1", op: "create", title: "Password sign-in", description: "", status: "approved", approvedBy: "Ana", reason: "" },
     { ref: "R2", op: "create", title: "MFA code", description: "", status: "proposed", approvedBy: null, reason: "" },
@@ -95,6 +96,7 @@ describe("executeProposal", () => {
       plan: {
         summary: "MFA approved over Slack",
         projectName: null,
+        people: [],
         requirementChanges: [
           { ref: mfa!.id, op: "update", title: "MFA code", description: "SMS allowed", status: "approved", approvedBy: "Bo", reason: "" },
         ],

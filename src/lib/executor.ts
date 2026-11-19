@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/db";
-import type { Action, Plan } from "@/lib/plan";
+import type { Action, Person, Plan } from "@/lib/plan";
 import type { JiraClient } from "@/lib/jira";
 
 // Outside services the executor can act on. Slack and email are wired in later.
@@ -120,10 +120,19 @@ async function ensureProject(projectId: string | null, plan: Plan, eventIds: str
       .values({
         name: plan.projectName ?? "New project",
         summary: plan.summary,
+        people: mergePeople([], plan.people),
         jiraProjectKey: process.env.JIRA_PROJECT_KEY ?? null,
       })
       .returning({ id: schema.projects.id });
     id = p.id;
+  } else if (plan.people.length) {
+    const current = await db.query.projects.findFirst({ where: eq(schema.projects.id, id) });
+    if (current) {
+      await db
+        .update(schema.projects)
+        .set({ people: mergePeople(current.people, plan.people), updatedAt: new Date() })
+        .where(eq(schema.projects.id, id));
+    }
   }
   if (eventIds.length) {
     await db
@@ -136,6 +145,27 @@ async function ensureProject(projectId: string | null, plan: Plan, eventIds: str
       .where(inArray(schema.events.id, eventIds));
   }
   return id;
+}
+
+/** Merge people lists, matching on email, Slack id, then name; later values fill gaps. */
+export function mergePeople(current: Person[], incoming: Person[]): Person[] {
+  const out = current.map((p) => ({ ...p }));
+  for (const person of incoming) {
+    const match = out.find(
+      (p) =>
+        (person.email && p.email?.toLowerCase() === person.email.toLowerCase()) ||
+        (person.slackUserId && p.slackUserId === person.slackUserId) ||
+        p.name.toLowerCase() === person.name.toLowerCase(),
+    );
+    if (match) {
+      match.email ??= person.email;
+      match.slackUserId ??= person.slackUserId;
+      match.role ??= person.role;
+    } else {
+      out.push({ ...person });
+    }
+  }
+  return out;
 }
 
 type RequirementRow = typeof schema.requirements.$inferSelect;

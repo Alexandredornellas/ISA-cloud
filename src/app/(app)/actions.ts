@@ -5,10 +5,17 @@ import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { executeProposal, retryFailedActions } from "@/lib/executor";
 import { liveSenders } from "@/lib/senders";
+import { confirmClarification } from "@/lib/brain/pipeline";
+import { claudeStructured } from "@/lib/brain/llm";
 
 export async function approveProposal(form: FormData) {
   const id = String(form.get("id"));
-  await executeProposal(id, liveSenders());
+  const proposal = await db.query.proposals.findFirst({ where: eq(schema.proposals.id, id) });
+  if (proposal?.kind === "clarify") {
+    await confirmClarification(id, claudeStructured);
+  } else {
+    await executeProposal(id, liveSenders());
+  }
   revalidatePath("/", "layout");
 }
 

@@ -73,6 +73,8 @@ export const PlanSchema = z.object({
   summary: z.string().describe("One or two sentences the user reads first"),
   // Only for new_project proposals.
   projectName: z.string().nullable(),
+  // People involved: everyone for a new project, newly involved people for an update.
+  people: z.array(PersonSchema),
   requirementChanges: z.array(RequirementChangeSchema),
   actions: z.array(ActionSchema),
   openQuestions: z.array(z.string()),

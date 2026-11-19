@@ -126,11 +126,11 @@ export function ProposalCard(p: Props) {
         <div className="mt-5 flex gap-2">
           <form action={approveProposal}>
             <input type="hidden" name="id" value={p.id} />
-            <SubmitButton className="bg-accent text-white">Approve</SubmitButton>
+            <SubmitButton className="bg-accent text-white">{p.kind === "clarify" ? "Yes" : "Approve"}</SubmitButton>
           </form>
           <form action={dismissProposal}>
             <input type="hidden" name="id" value={p.id} />
-            <SubmitButton className="border border-line">Dismiss</SubmitButton>
+            <SubmitButton className="border border-line">{p.kind === "clarify" ? "No" : "Dismiss"}</SubmitButton>
           </form>
         </div>
       ) : null}

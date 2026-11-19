@@ -1,0 +1,193 @@
+import { eq, inArray } from "drizzle-orm";
+import { db, schema } from "@/db";
+import { PlanSchema, SortResultSchema, type Plan, type SortResult } from "@/lib/plan";
+import { eventText, projectBlock, projectsContext } from "./context";
+import { PROPOSE_SYSTEM, SORT_SYSTEM } from "./prompts";
+import type { StructuredLLM } from "./llm";
+
+type EventRow = typeof schema.events.$inferSelect;
+
+export type ProcessOutcome =
+  | { kind: "ignored" }
+  | { kind: "filed"; proposalIds: string[] }
+  | { kind: "unsure"; proposalIds: string[] };
+
+/**
+ * Sort one new event and create the proposals it leads to:
+ * - a clear match to a project files the event there and drafts that project's update;
+ * - an unclear match asks the owner "Is this about project X?";
+ * - work that fits no project drafts a new project.
+ */
+export async function processEvent(eventId: string, llm: StructuredLLM): Promise<ProcessOutcome> {
+  const event = await db.query.events.findFirst({ where: eq(schema.events.id, eventId) });
+  if (!event) throw new Error("Event not found");
+
+  try {
+    const { text: context, projectIds } = await projectsContext();
+    const raw = await llm({
+      system: SORT_SYSTEM,
+      context,
+      input: `New item:\n${eventText(event)}`,
+      schema: SortResultSchema,
+      effort: "medium",
+    });
+    const sort = cleanSort(raw, projectIds);
+
+    const proposalIds: string[] = [];
+    let unsure = false;
+
+    for (const match of sort.matches) {
+      if (match.confidence === "high") {
+        await linkEvent(event.id, match.projectId, match.relation, match.note);
+        if (match.relation !== "context") {
+          const id = await proposeUpdate(match.projectId, [event], llm);
+          if (id) proposalIds.push(id);
+        }
+      } else {
+        unsure = true;
+        proposalIds.push(await askWhichProject(event, match.projectId, match.note));
+      }
+    }
+
+    if (sort.newProject) {
+      proposalIds.push(await proposeNewProject(event, sort.newProject.name, llm));
+    }
+
+    const status = sort.ignore && proposalIds.length === 0 && sort.matches.length === 0 ? "ignored" : unsure ? "unsure" : "sorted";
+    await db
+      .update(schema.events)
+      .set({ status, sortResult: sort, error: null, updatedAt: new Date() })
+      .where(eq(schema.events.id, event.id));
+
+    if (status === "ignored") return { kind: "ignored" };
+    return { kind: unsure ? "unsure" : "filed", proposalIds };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await db
+      .update(schema.events)
+      .set({ status: "failed", error: message, updatedAt: new Date() })
+      .where(eq(schema.events.id, event.id));
+    throw err;
+  }
+}
+
+/** Drop matches to projects that do not exist, and repeated matches to the same project. */
+export function cleanSort(sort: SortResult, projectIds: Set<string>): SortResult {
+  const seen = new Set<string>();
+  const matches = sort.matches.filter((m) => {
+    if (!projectIds.has(m.projectId) || seen.has(m.projectId)) return false;
+    seen.add(m.projectId);
+    return true;
+  });
+  return { ...sort, matches };
+}
+
+async function linkEvent(eventId: string, projectId: string, relation: string, note: string) {
+  await db
+    .insert(schema.eventProjects)
+    .values({ eventId, projectId, relation, note })
+    .onConflictDoUpdate({
+      target: [schema.eventProjects.eventId, schema.eventProjects.projectId],
+      set: { relation, note },
+    });
+}
+
+/** Draft an update for an existing project from new events. Returns null when nothing changes. */
+export async function proposeUpdate(projectId: string, events: EventRow[], llm: StructuredLLM): Promise<string | null> {
+  const project = await db.query.projects.findFirst({ where: eq(schema.projects.id, projectId) });
+  if (!project) throw new Error("Project not found");
+  const plan = await llm({
+    system: PROPOSE_SYSTEM,
+    context: `The project:\n${await projectBlock(projectId)}`,
+    input: `New items:\n${events.map(eventText).join("\n\n")}`,
+    schema: PlanSchema,
+    effort: "high",
+  });
+  const cleaned = cleanPlan({ ...plan, projectName: null });
+  if (cleaned.requirementChanges.length === 0 && cleaned.actions.length === 0) return null;
+  const [row] = await db
+    .insert(schema.proposals)
+    .values({
+      kind: "update",
+      projectId,
+      title: `Changes on ${project.name}`,
+      plan: cleaned,
+      eventIds: events.map((e) => e.id),
+    })
+    .returning({ id: schema.proposals.id });
+  return row.id;
+}
+
+async function proposeNewProject(event: EventRow, name: string, llm: StructuredLLM): Promise<string> {
+  const plan = await llm({
+    system: PROPOSE_SYSTEM,
+    context: `This is a new project. Suggested name: ${name}`,
+    input: `New items:\n${eventText(event)}`,
+    schema: PlanSchema,
+    effort: "high",
+  });
+  const cleaned = cleanPlan({ ...plan, projectName: plan.projectName || name });
+  const [row] = await db
+    .insert(schema.proposals)
+    .values({
+      kind: "new_project",
+      title: `New project: ${cleaned.projectName}`,
+      plan: cleaned,
+      eventIds: [event.id],
+    })
+    .returning({ id: schema.proposals.id });
+  return row.id;
+}
+
+/** "Is this about project X?" Approving it files the event there and drafts the update. */
+async function askWhichProject(event: EventRow, projectId: string, note: string): Promise<string> {
+  const project = await db.query.projects.findFirst({ where: eq(schema.projects.id, projectId) });
+  const plan: Plan = {
+    summary: note,
+    projectName: null,
+    people: [],
+    requirementChanges: [],
+    actions: [],
+    openQuestions: [],
+  };
+  const [row] = await db
+    .insert(schema.proposals)
+    .values({
+      kind: "clarify",
+      projectId,
+      title: `Is "${event.title}" about ${project?.name ?? "this project"}?`,
+      plan,
+      eventIds: [event.id],
+    })
+    .returning({ id: schema.proposals.id });
+  return row.id;
+}
+
+/** The owner confirmed a "which project" question: file the event and draft the update. */
+export async function confirmClarification(proposalId: string, llm: StructuredLLM): Promise<string | null> {
+  const proposal = await db.query.proposals.findFirst({ where: eq(schema.proposals.id, proposalId) });
+  if (!proposal || proposal.kind !== "clarify" || proposal.status !== "pending" || !proposal.projectId) {
+    throw new Error("Nothing to confirm");
+  }
+  await db
+    .update(schema.proposals)
+    .set({ status: "executed", decidedAt: new Date(), updatedAt: new Date() })
+    .where(eq(schema.proposals.id, proposalId));
+  const events = await db.query.events.findMany({ where: inArray(schema.events.id, proposal.eventIds) });
+  for (const e of events) await linkEvent(e.id, proposal.projectId, "change", proposal.plan.summary);
+  await db
+    .update(schema.events)
+    .set({ status: "sorted", updatedAt: new Date() })
+    .where(inArray(schema.events.id, proposal.eventIds));
+  return proposeUpdate(proposal.projectId, events, llm);
+}
+
+/** Drop actions that cannot be carried out. */
+export function cleanPlan(plan: Plan): Plan {
+  const actions = plan.actions.filter((a) => {
+    if (a.type === "slack_message") return a.channel.trim() !== "" && a.text.trim() !== "";
+    if (a.type === "email") return a.to.length > 0 && a.body.trim() !== "";
+    return true;
+  });
+  return { ...plan, actions };
+}
