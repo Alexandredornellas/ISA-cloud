@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { describeAction, type Action } from "@/lib/plan";
+import { addRule, removeRule } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -129,16 +130,32 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
         </section>
       ) : null}
 
-      {rules.length ? (
-        <section>
-          <h2 className="text-xs font-medium uppercase tracking-wide text-muted">Your rules for ISA</h2>
-          <ul className="mt-3 list-disc space-y-1 pl-5 text-sm">
+      <section>
+        <h2 className="text-xs font-medium uppercase tracking-wide text-muted">Your rules for ISA</h2>
+        {rules.length ? (
+          <ul className="mt-3 space-y-1 text-sm">
             {rules.map((r) => (
-              <li key={r.id}>{r.text}</li>
+              <li key={r.id} className="flex items-start justify-between gap-3">
+                <span>{r.text}</span>
+                <form action={removeRule}>
+                  <input type="hidden" name="projectId" value={project.id} />
+                  <input type="hidden" name="id" value={r.id} />
+                  <button className="text-xs text-muted hover:text-danger">Remove</button>
+                </form>
+              </li>
             ))}
           </ul>
-        </section>
-      ) : null}
+        ) : null}
+        <form action={addRule} className="mt-3 flex gap-2">
+          <input type="hidden" name="projectId" value={project.id} />
+          <input
+            name="text"
+            placeholder="e.g. Ana approves all design changes"
+            className="flex-1 rounded-lg border border-line bg-surface px-3 py-2 text-sm"
+          />
+          <button className="rounded-lg border border-line px-4 py-2 text-sm font-medium">Add rule</button>
+        </form>
+      </section>
 
       <section>
         <h2 className="text-xs font-medium uppercase tracking-wide text-muted">Timeline</h2>
