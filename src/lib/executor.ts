@@ -38,8 +38,9 @@ export async function executeProposal(proposalId: string, senders: Senders): Pro
 
   const rows = plan.actions.length === 0 ? [] : await db
     .insert(schema.actions)
-    .values(plan.actions.map((action) => ({ proposalId, projectId, type: action.type, payload: action })))
-    .returning({ id: schema.actions.id, payload: schema.actions.payload });
+    .values(plan.actions.map((action, position) => ({ proposalId, projectId, type: action.type, position, payload: action })))
+    .returning({ id: schema.actions.id, payload: schema.actions.payload, position: schema.actions.position });
+  rows.sort((a, b) => a.position - b.position);
 
   return runActions(proposalId, projectId, rows, refToRequirement, senders);
 }
@@ -64,7 +65,7 @@ export async function retryFailedActions(proposalId: string, senders: Senders): 
     .select({ id: schema.actions.id, payload: schema.actions.payload })
     .from(schema.actions)
     .where(and(eq(schema.actions.proposalId, proposalId), eq(schema.actions.status, "failed")))
-    .orderBy(asc(schema.actions.createdAt));
+    .orderBy(asc(schema.actions.position));
 
   return runActions(proposalId, proposal.projectId, failed, refToRequirement, senders);
 }

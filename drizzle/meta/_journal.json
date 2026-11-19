@@ -22,6 +22,13 @@
       "when": 1795109925042,
       "tag": "0002_worker_state",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1795110104970,
+      "tag": "0003_action_position",
+      "breakpoints": true
     }
   ]
 }

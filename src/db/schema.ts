@@ -5,6 +5,7 @@ import {
   text,
   timestamp,
   jsonb,
+  integer,
   uniqueIndex,
   index,
 } from "drizzle-orm/pg-core";
@@ -151,6 +152,8 @@ export const actions = pgTable("actions", {
     .references(() => proposals.id, { onDelete: "cascade" }),
   projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
   type: text("type").notNull(),
+  // Order within the proposal: a comment on a new ticket must run after the ticket is created.
+  position: integer("position").notNull().default(0),
   status: actionStatus("status").notNull().default("pending"),
   payload: jsonb("payload").notNull(),
   result: jsonb("result"),
