@@ -193,3 +193,32 @@ export const connections = pgTable(
   },
   (t) => [uniqueIndex("connections_provider_idx").on(t.provider)],
 );
+
+export const botStatus = pgEnum("bot_status", [
+  "scheduled", // created, waiting to join
+  "in_call", // joined, recording
+  "processing", // call ended, waiting for the transcript
+  "done", // transcript stored as an event
+  "failed",
+]);
+
+// Meeting-bot sessions (Recall.ai). The worker polls active ones and turns each finished
+// transcript into one event.
+export const meetingBots = pgTable(
+  "meeting_bots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    recallBotId: text("recall_bot_id").notNull(),
+    meetingUrl: text("meeting_url").notNull(),
+    title: text("title").notNull(),
+    platform: eventSource("platform").notNull(),
+    joinAt: timestamp("join_at", { withTimezone: true }),
+    status: botStatus("status").notNull().default("scheduled"),
+    eventId: uuid("event_id").references(() => events.id, { onDelete: "set null" }),
+    // Calendar event this bot was scheduled for, so it is not scheduled twice.
+    calendarEventId: text("calendar_event_id"),
+    error: text("error"),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("meeting_bots_recall_idx").on(t.recallBotId), index("meeting_bots_status_idx").on(t.status)],
+);

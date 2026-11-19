@@ -1,4 +1,7 @@
+import { desc } from "drizzle-orm";
+import { db, schema } from "@/db";
 import { JiraClient, jiraConfigFromEnv } from "@/lib/jira";
+import { SendBotForm } from "@/components/SendBotForm";
 
 export const dynamic = "force-dynamic";
 
@@ -18,31 +21,65 @@ function envStatus(name: string, vars: string[], okDetail: string, missingDetail
   return { name, ok, detail: ok ? okDetail : missingDetail };
 }
 
+const BOT_LABEL = {
+  scheduled: "Scheduled",
+  in_call: "In the call",
+  processing: "Getting transcript",
+  done: "Transcript in inbox",
+  failed: "Failed",
+} as const;
+
 export default async function ConnectionsPage() {
   const statuses: Status[] = [
     envStatus("Claude", ["ANTHROPIC_API_KEY"], "API key set", "Set ANTHROPIC_API_KEY"),
     await jiraStatus(),
-    envStatus("Meeting bot", ["RECALL_API_KEY"], "Recall.ai key set", "Coming on day 2"),
-    { name: "Gmail", ok: false, detail: "Coming on day 4" },
-    { name: "Slack", ok: false, detail: "Coming on day 4" },
+    envStatus("Meeting bot", ["RECALL_API_KEY"], "Recall.ai key set", "Set RECALL_API_KEY"),
+    { name: "Gmail", ok: false, detail: "Coming soon" },
+    { name: "Slack", ok: false, detail: "Coming soon" },
   ];
+  const bots = await db.select().from(schema.meetingBots).orderBy(desc(schema.meetingBots.createdAt)).limit(10);
 
   return (
-    <div>
-      <h1 className="text-2xl font-semibold">Connections</h1>
-      <ul className="mt-5 divide-y divide-line rounded-xl border border-line bg-surface">
-        {statuses.map((s) => (
-          <li key={s.name} className="flex items-start justify-between gap-4 p-4">
-            <div>
-              <p className="font-medium">{s.name}</p>
-              <p className="mt-0.5 break-all text-sm text-muted">{s.detail}</p>
-            </div>
-            <span className={`shrink-0 text-sm font-medium ${s.ok ? "text-ok" : "text-muted"}`}>
-              {s.ok ? "Connected" : "Off"}
-            </span>
-          </li>
-        ))}
-      </ul>
+    <div className="space-y-8">
+      <section>
+        <h1 className="text-2xl font-semibold">Connections</h1>
+        <ul className="mt-5 divide-y divide-line rounded-xl border border-line bg-surface">
+          {statuses.map((s) => (
+            <li key={s.name} className="flex items-start justify-between gap-4 p-4">
+              <div>
+                <p className="font-medium">{s.name}</p>
+                <p className="mt-0.5 break-all text-sm text-muted">{s.detail}</p>
+              </div>
+              <span className={`shrink-0 text-sm font-medium ${s.ok ? "text-ok" : "text-muted"}`}>
+                {s.ok ? "Connected" : "Off"}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold">Meetings</h2>
+        <SendBotForm />
+        {bots.length ? (
+          <ul className="divide-y divide-line rounded-xl border border-line bg-surface">
+            {bots.map((b) => (
+              <li key={b.id} className="flex items-start justify-between gap-4 p-4 text-sm">
+                <div>
+                  <p className="font-medium">{b.title}</p>
+                  <p className="mt-0.5 text-muted">
+                    {(b.joinAt ?? b.createdAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}
+                    {b.error ? ` · ${b.error}` : ""}
+                  </p>
+                </div>
+                <span className={`shrink-0 font-medium ${b.status === "failed" ? "text-danger" : b.status === "done" ? "text-ok" : "text-muted"}`}>
+                  {BOT_LABEL[b.status]}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </section>
     </div>
   );
 }
