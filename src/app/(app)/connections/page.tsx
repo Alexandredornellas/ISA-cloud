@@ -1,6 +1,7 @@
 import { desc } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { JiraClient, jiraConfigFromEnv } from "@/lib/jira";
+import { liveSlack } from "@/lib/runtime";
 import { SendBotForm } from "@/components/SendBotForm";
 
 export const dynamic = "force-dynamic";
@@ -13,6 +14,17 @@ async function jiraStatus(): Promise<Status> {
     return { name: "Jira", ok: true, detail: `Project ${project.key}: ${project.name}` };
   } catch (err) {
     return { name: "Jira", ok: false, detail: err instanceof Error ? err.message : "Not connected" };
+  }
+}
+
+async function slackStatus(): Promise<Status> {
+  const slack = liveSlack();
+  if (!slack) return { name: "Slack", ok: false, detail: "Set SLACK_USER_TOKEN and SLACK_BOT_TOKEN" };
+  try {
+    const me = await slack.whoAmI();
+    return { name: "Slack", ok: true, detail: `${me.team}, reading as ${me.user}, posting as ISA` };
+  } catch (err) {
+    return { name: "Slack", ok: false, detail: err instanceof Error ? err.message : "Not connected" };
   }
 }
 
@@ -35,7 +47,7 @@ export default async function ConnectionsPage() {
     await jiraStatus(),
     envStatus("Meeting bot", ["RECALL_API_KEY"], "Recall.ai key set", "Set RECALL_API_KEY"),
     { name: "Gmail", ok: false, detail: "Coming soon" },
-    { name: "Slack", ok: false, detail: "Coming soon" },
+    await slackStatus(),
   ];
   const bots = await db.select().from(schema.meetingBots).orderBy(desc(schema.meetingBots.createdAt)).limit(10);
 

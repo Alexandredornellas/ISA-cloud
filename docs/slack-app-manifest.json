@@ -1,0 +1,32 @@
+{
+  "display_information": {
+    "name": "ISA",
+    "description": "Your AI secretary: files requirements into projects and keeps people updated.",
+    "background_color": "#1f2937"
+  },
+  "features": {
+    "bot_user": { "display_name": "ISA", "always_online": true }
+  },
+  "oauth_config": {
+    "scopes": {
+      "user": [
+        "channels:history",
+        "channels:read",
+        "groups:history",
+        "groups:read",
+        "im:history",
+        "im:read",
+        "mpim:history",
+        "mpim:read",
+        "users:read",
+        "users:read.email"
+      ],
+      "bot": ["chat:write", "chat:write.public", "im:write", "users:read"]
+    }
+  },
+  "settings": {
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}

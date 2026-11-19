@@ -3,19 +3,36 @@ import { db, schema } from "@/db";
 import { processEvent } from "@/lib/brain/pipeline";
 import type { StructuredLLM } from "@/lib/brain/llm";
 import { formatTranscript, type RecallClient } from "@/lib/recall";
+import type { SlackClient } from "@/lib/slack";
+import { pollSlack } from "@/lib/slack-poll";
 
-export type WorkerDeps = { recall: RecallClient | null; llm: StructuredLLM | null };
+export type WorkerDeps = {
+  recall: RecallClient | null;
+  slack: SlackClient | null;
+  llm: StructuredLLM | null;
+  /** Read Slack on this pass (Slack is read every 30 seconds to stay inside its rate limits). */
+  readSlack?: boolean;
+};
 
 /**
  * One pass of ISA's background work:
  * 1. check meeting bots that are scheduled or in a call, and store finished transcripts as events;
- * 2. sort every new event and draft its proposals.
+ * 2. read new Slack messages;
+ * 3. sort every new event and draft its proposals.
  * Errors on one item are recorded on that item and never stop the rest.
  */
-export async function tick(deps: WorkerDeps): Promise<{ transcripts: number; processed: number }> {
+export async function tick(deps: WorkerDeps): Promise<{ transcripts: number; slack: number; processed: number }> {
   const transcripts = deps.recall ? await pollBots(deps.recall) : 0;
+  const slack = deps.slack && deps.readSlack !== false ? await pollSlack(deps.slack).catch(logFailure("slack")) : 0;
   const processed = deps.llm ? await processNewEvents(deps.llm) : 0;
-  return { transcripts, processed };
+  return { transcripts, slack, processed };
+}
+
+function logFailure(what: string) {
+  return (err: unknown) => {
+    console.error(`${what} poll failed`, { error: err instanceof Error ? err.name : "unknown" });
+    return 0;
+  };
 }
 
 export async function pollBots(recall: RecallClient): Promise<number> {

@@ -222,3 +222,10 @@ export const meetingBots = pgTable(
   },
   (t) => [uniqueIndex("meeting_bots_recall_idx").on(t.recallBotId), index("meeting_bots_status_idx").on(t.status)],
 );
+
+// Small key-value store for the worker's cursors, e.g. the last Slack message seen per channel.
+export const workerState = pgTable("worker_state", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").$type<Record<string, string>>().notNull().default({}),
+  ...timestamps,
+});
