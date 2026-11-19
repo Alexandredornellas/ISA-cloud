@@ -191,3 +191,68 @@ export function cleanPlan(plan: Plan): Plan {
   });
   return { ...plan, actions };
 }
+
+/** Redraft a pending proposal with the owner's correction, keeping the same proposal. */
+export async function reviseProposal(proposalId: string, instruction: string, llm: StructuredLLM): Promise<Plan> {
+  const proposal = await db.query.proposals.findFirst({ where: eq(schema.proposals.id, proposalId) });
+  if (!proposal || proposal.status !== "pending" || proposal.kind === "clarify") {
+    throw new Error("Only a pending proposal with changes can be revised");
+  }
+  const events = proposal.eventIds.length
+    ? await db.query.events.findMany({ where: inArray(schema.events.id, proposal.eventIds) })
+    : [];
+  const plan = await llm({
+    system: PROPOSE_SYSTEM,
+    context: proposal.projectId
+      ? `The project:\n${await projectBlock(proposal.projectId)}`
+      : `This is a new project. Suggested name: ${proposal.plan.projectName ?? ""}`,
+    input: [
+      `New items:\n${events.map(eventText).join("\n\n") || "(none)"}`,
+      `Your current draft plan:\n${JSON.stringify(proposal.plan, null, 2)}`,
+      `The owner's correction, which wins over the items:\n${instruction}`,
+      "Return the whole corrected plan.",
+    ].join("\n\n"),
+    schema: PlanSchema,
+    effort: "high",
+  });
+  const cleaned = cleanPlan(
+    proposal.kind === "new_project" ? { ...plan, projectName: plan.projectName || proposal.plan.projectName } : { ...plan, projectName: null },
+  );
+  await db
+    .update(schema.proposals)
+    .set({
+      plan: cleaned,
+      title: proposal.kind === "new_project" ? `New project: ${cleaned.projectName}` : proposal.title,
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.proposals.id, proposalId));
+  return cleaned;
+}
+
+/**
+ * File an item under a different project (or a new one): pending proposals drafted from it are
+ * dismissed, and a fresh one is drafted for the target. Returns the new proposal id, if any.
+ */
+export async function refileEvent(
+  eventId: string,
+  target: { projectId: string } | { newProjectName: string },
+  llm: StructuredLLM,
+): Promise<string | null> {
+  const event = await db.query.events.findFirst({ where: eq(schema.events.id, eventId) });
+  if (!event) throw new Error("Item not found");
+  const pending = await db.query.proposals.findMany({ where: eq(schema.proposals.status, "pending") });
+  const stale = pending.filter((p) => p.eventIds.includes(eventId)).map((p) => p.id);
+  if (stale.length) {
+    await db
+      .update(schema.proposals)
+      .set({ status: "dismissed", decidedAt: new Date(), updatedAt: new Date() })
+      .where(inArray(schema.proposals.id, stale));
+  }
+  await db.delete(schema.eventProjects).where(eq(schema.eventProjects.eventId, eventId));
+  await db.update(schema.events).set({ status: "sorted", updatedAt: new Date() }).where(eq(schema.events.id, eventId));
+  if ("projectId" in target) {
+    await linkEvent(eventId, target.projectId, "change", "Filed here by the owner");
+    return proposeUpdate(target.projectId, [event], llm);
+  }
+  return proposeNewProject(event, target.newProjectName, llm);
+}

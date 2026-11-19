@@ -10,6 +10,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </Link>
         <nav className="flex gap-1 text-sm">
           <NavLink href="/">Inbox</NavLink>
+          <NavLink href="/chat">Ask ISA</NavLink>
           <NavLink href="/projects">Projects</NavLink>
           <NavLink href="/connections">Connections</NavLink>
         </nav>
