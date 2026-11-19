@@ -1,6 +1,7 @@
 import { claudeStructured } from "@/lib/brain/llm";
 import { RecallClient, recallConfigFromEnv } from "@/lib/recall";
 import { SlackClient, slackConfigFromEnv } from "@/lib/slack";
+import { liveGoogle } from "@/lib/google";
 import { tick, type WorkerDeps } from "@/lib/worker";
 
 function optional<T>(make: () => T): T | null {
@@ -22,12 +23,12 @@ export function liveWorkerDeps(): WorkerDeps {
   return {
     recall: optional(() => new RecallClient(recallConfigFromEnv())),
     slack: liveSlack(),
+    google: liveGoogle(),
     llm: process.env.ANTHROPIC_API_KEY ? claudeStructured : null,
   };
 }
 
 const INTERVAL_MS = 10_000;
-const SLACK_EVERY = 3; // passes, so Slack is read every 30 seconds
 
 /** Run the worker every 10 seconds inside the web server process. One loop per process. */
 export function startWorker() {
@@ -40,7 +41,7 @@ export function startWorker() {
     if (running) return;
     running = true;
     try {
-      await tick({ ...liveWorkerDeps(), readSlack: pass++ % SLACK_EVERY === 0 });
+      await tick({ ...liveWorkerDeps(), pass: pass++ });
     } catch (err) {
       console.error("worker tick failed", { error: err instanceof Error ? err.name : "unknown" });
     } finally {

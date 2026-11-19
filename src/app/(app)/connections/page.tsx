@@ -3,6 +3,8 @@ import { db, schema } from "@/db";
 import { JiraClient, jiraConfigFromEnv } from "@/lib/jira";
 import { liveSlack } from "@/lib/runtime";
 import { SendBotForm } from "@/components/SendBotForm";
+import { GoogleClient, googleConfigFromEnv } from "@/lib/google";
+import { setAutoJoin } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -46,9 +48,18 @@ export default async function ConnectionsPage() {
     envStatus("Claude", ["ANTHROPIC_API_KEY"], "API key set", "Set ANTHROPIC_API_KEY"),
     await jiraStatus(),
     envStatus("Meeting bot", ["RECALL_API_KEY"], "Recall.ai key set", "Set RECALL_API_KEY"),
-    { name: "Gmail", ok: false, detail: "Coming soon" },
     await slackStatus(),
   ];
+  const googleConfigured = (() => {
+    try {
+      googleConfigFromEnv();
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+  const google = await GoogleClient.connection();
+  const autoJoin = google?.state.autoJoin === "on";
   const bots = await db.select().from(schema.meetingBots).orderBy(desc(schema.meetingBots.createdAt)).limit(10);
 
   return (
@@ -68,10 +79,39 @@ export default async function ConnectionsPage() {
             </li>
           ))}
         </ul>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-surface p-4">
+          <div>
+            <p className="font-medium">Gmail and Google Calendar</p>
+            <p className="mt-0.5 text-sm text-muted">
+              {google
+                ? `${google.account}: ISA reads new inbox emails and sends approved replies from this account.`
+                : googleConfigured
+                  ? "Connect to let ISA read your inbox, send approved emails and see your meetings."
+                  : "Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and APP_URL"}
+            </p>
+          </div>
+          {googleConfigured ? (
+            <a href="/api/google/connect" className="rounded-lg border border-line px-4 py-2 text-sm font-medium">
+              {google ? "Reconnect" : "Connect Google"}
+            </a>
+          ) : null}
+        </div>
       </section>
 
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">Meetings</h2>
+        {google ? (
+          <form action={setAutoJoin} className="flex items-center justify-between gap-3 rounded-xl border border-line bg-surface p-4">
+            <p className="text-sm">
+              <span className="font-medium">Join my calendar meetings.</span>{" "}
+              <span className="text-muted">ISA Notetaker joins every meeting with a Zoom, Meet or Teams link that you have not declined.</span>
+            </p>
+            <input type="hidden" name="on" value={autoJoin ? "off" : "on"} />
+            <button className={`shrink-0 rounded-lg px-4 py-2 text-sm font-medium ${autoJoin ? "bg-accent text-white" : "border border-line"}`}>
+              {autoJoin ? "On" : "Off"}
+            </button>
+          </form>
+        ) : null}
         <SendBotForm />
         {bots.length ? (
           <ul className="divide-y divide-line rounded-xl border border-line bg-surface">

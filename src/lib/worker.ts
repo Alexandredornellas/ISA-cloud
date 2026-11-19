@@ -5,27 +5,38 @@ import type { StructuredLLM } from "@/lib/brain/llm";
 import { formatTranscript, type RecallClient } from "@/lib/recall";
 import type { SlackClient } from "@/lib/slack";
 import { pollSlack } from "@/lib/slack-poll";
+import { GoogleClient } from "@/lib/google";
+import { pollGmail } from "@/lib/gmail";
+import { scheduleCalendarBots } from "@/lib/calendar";
 
 export type WorkerDeps = {
   recall: RecallClient | null;
   slack: SlackClient | null;
+  google: GoogleClient | null;
   llm: StructuredLLM | null;
-  /** Read Slack on this pass (Slack is read every 30 seconds to stay inside its rate limits). */
-  readSlack?: boolean;
+  /** Pass number. Slack and Gmail are read every 3rd pass and the calendar every 12th, to stay inside rate limits. Omit to run everything. */
+  pass?: number;
 };
 
 /**
  * One pass of ISA's background work:
  * 1. check meeting bots that are scheduled or in a call, and store finished transcripts as events;
- * 2. read new Slack messages;
+ * 2. read new Slack messages and emails, and schedule the bot for upcoming calendar meetings;
  * 3. sort every new event and draft its proposals.
- * Errors on one item are recorded on that item and never stop the rest.
+ * Errors in one source are logged and never stop the rest.
  */
-export async function tick(deps: WorkerDeps): Promise<{ transcripts: number; slack: number; processed: number }> {
-  const transcripts = deps.recall ? await pollBots(deps.recall) : 0;
-  const slack = deps.slack && deps.readSlack !== false ? await pollSlack(deps.slack).catch(logFailure("slack")) : 0;
+export async function tick(deps: WorkerDeps) {
+  const every = (n: number) => deps.pass === undefined || deps.pass % n === 0;
+  const google = deps.google && every(3) && (await GoogleClient.connection()) ? deps.google : null;
+  const transcripts = deps.recall ? await pollBots(deps.recall).catch(logFailure("bot")) : 0;
+  const slack = deps.slack && every(3) ? await pollSlack(deps.slack).catch(logFailure("slack")) : 0;
+  const email = google ? await pollGmail(google).catch(logFailure("gmail")) : 0;
+  const meetings =
+    google && deps.recall && every(12)
+      ? await scheduleCalendarBots(google, deps.recall).catch(logFailure("calendar"))
+      : 0;
   const processed = deps.llm ? await processNewEvents(deps.llm) : 0;
-  return { transcripts, slack, processed };
+  return { transcripts, slack, email, meetings, processed };
 }
 
 function logFailure(what: string) {

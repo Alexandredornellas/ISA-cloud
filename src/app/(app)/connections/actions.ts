@@ -1,5 +1,6 @@
 "use server";
 
+import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { RecallClient, platformOf, recallConfigFromEnv } from "@/lib/recall";
@@ -37,4 +38,17 @@ export async function sendBotToMeeting(_prev: SendBotState, form: FormData): Pro
   }
   revalidatePath("/connections");
   return { ok: true, error: null };
+}
+
+/** Turn calendar auto-join on or off. */
+export async function setAutoJoin(form: FormData) {
+  const { GoogleClient } = await import("@/lib/google");
+  const conn = await GoogleClient.connection();
+  if (!conn) return;
+  const on = form.get("on") === "on";
+  await db
+    .update(schema.connections)
+    .set({ state: { ...conn.state, autoJoin: on ? "on" : "off" }, updatedAt: new Date() })
+    .where(eq(schema.connections.id, conn.id));
+  revalidatePath("/connections");
 }
