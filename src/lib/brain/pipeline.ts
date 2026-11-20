@@ -1,4 +1,5 @@
-import { eq, inArray } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
+import { syncJira, type JiraReader } from "@/lib/jira-sync";
 import { db, schema } from "@/db";
 import { PlanSchema, SortResultSchema, type Plan, type SortResult } from "@/lib/plan";
 import { eventText, projectBlock, projectsContext } from "./context";
@@ -287,20 +288,23 @@ export async function redraftFromEvent(
   eventId: string,
   projectId: string,
   llm: StructuredLLM,
-  jira: { issueExists(key: string): Promise<boolean> } | null,
+  jira: JiraReader | null,
 ): Promise<string | null> {
   const event = await db.query.events.findFirst({ where: eq(schema.events.id, eventId) });
   if (!event) throw new Error("Item not found");
-  if (jira) {
-    const reqs = await db.query.requirements.findMany({ where: eq(schema.requirements.projectId, projectId) });
-    for (const r of reqs) {
-      if (r.jiraIssueKey && !(await jira.issueExists(r.jiraIssueKey))) {
-        await db
-          .update(schema.requirements)
-          .set({ jiraIssueKey: null, updatedAt: new Date() })
-          .where(eq(schema.requirements.id, r.id));
-      }
-    }
-  }
+  if (jira) await syncJira(jira, projectId);
   return proposeUpdate(projectId, [event], llm);
+}
+
+/** Draft the project's tickets again from its latest items, after checking Jira. */
+export async function redraftProject(projectId: string, llm: StructuredLLM, jira: JiraReader | null): Promise<string | null> {
+  if (jira) await syncJira(jira, projectId);
+  const links = await db.select().from(schema.eventProjects).where(eq(schema.eventProjects.projectId, projectId));
+  if (!links.length) throw new Error("Nothing is filed under this project yet");
+  const events = await db.query.events.findMany({
+    where: inArray(schema.events.id, links.map((l) => l.eventId)),
+    orderBy: desc(schema.events.occurredAt),
+    limit: 5,
+  });
+  return proposeUpdate(projectId, events.reverse(), llm);
 }

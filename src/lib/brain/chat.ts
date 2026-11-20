@@ -24,7 +24,8 @@ export async function sendChat(text: string): Promise<string> {
   const start = messages.length;
   messages.push({ role: "user", content: [{ type: "text", text }] });
 
-  const tools = chatTools(claudeStructured).map((t) =>
+  const { liveSenders } = await import("@/lib/senders");
+  const tools = chatTools(claudeStructured, liveSenders().jira).map((t) =>
     betaZodTool({
       name: t.name,
       description: t.description,

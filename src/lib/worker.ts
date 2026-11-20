@@ -8,12 +8,14 @@ import { pollSlack } from "@/lib/slack-poll";
 import { GoogleClient } from "@/lib/google";
 import { pollGmail } from "@/lib/gmail";
 import { scheduleCalendarBots } from "@/lib/calendar";
+import { syncJira, type JiraReader } from "@/lib/jira-sync";
 
 export type WorkerDeps = {
   recall: RecallClient | null;
   slack: SlackClient | null;
   google: GoogleClient | null;
   llm: StructuredLLM | null;
+  jira?: JiraReader | null;
   /** Pass number. Slack and Gmail are read every 3rd pass and the calendar every 12th, to stay inside rate limits. Omit to run everything. */
   pass?: number;
 };
@@ -35,8 +37,10 @@ export async function tick(deps: WorkerDeps) {
     google && deps.recall && every(12)
       ? await scheduleCalendarBots(google, deps.recall).catch(logFailure("calendar"))
       : 0;
+  // Every 2 minutes, notice tickets deleted, moved along or finished in Jira.
+  const jira = deps.jira && every(12) ? await syncJira(deps.jira).then((r) => r.unlinked + r.done).catch(logFailure("jira")) : 0;
   const processed = deps.llm ? await processNewEvents(deps.llm) : 0;
-  return { transcripts, slack, email, meetings, processed };
+  return { transcripts, slack, email, meetings, jira, processed };
 }
 
 function logFailure(what: string) {

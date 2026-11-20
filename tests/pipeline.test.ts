@@ -216,13 +216,16 @@ describe("redraftFromEvent", () => {
       { projectId: p.id, title: "Reset", description: "", jiraIssueKey: "SCRUM-2" },
     ]);
     const { llm, calls } = scripted({ matches: [], newProject: null, ignore: false, reason: "" }, plan);
-    const jira = { issueExists: async (k: string) => k === "SCRUM-2" };
+    const jira = { projectIssues: async () => [{ key: "SCRUM-2", summary: "Reset", status: "Concluído", done: true }] };
 
     const id = await redraftFromEvent(e.id, p.id, llm, jira);
 
     expect(id).not.toBeNull();
     const reqs = await db.select().from(schema.requirements);
-    expect(Object.fromEntries(reqs.map((r) => [r.title, r.jiraIssueKey]))).toEqual({ MFA: null, Reset: "SCRUM-2" });
+    expect(Object.fromEntries(reqs.map((r) => [r.title, [r.jiraIssueKey, r.jiraStatus, r.status]]))).toEqual({
+      MFA: [null, null, "proposed"],
+      Reset: ["SCRUM-2", "Concluído", "done"],
+    });
     expect(calls[0].input).toContain("We need MFA on login");
   });
 });

@@ -75,3 +75,19 @@ describe("JiraClient", () => {
     await expect(new JiraClient(cfg, f.impl).addComment("ISA-1", "hi")).rejects.toBeInstanceOf(JiraError);
   });
 });
+
+describe("projectIssues", () => {
+  it("pages through a project's tickets", async () => {
+    const issue = (key: string, cat: string) => ({ key, fields: { summary: key, status: { name: "S", statusCategory: { key: cat } } } });
+    const f = fakeFetch([
+      { status: 200, body: { issues: [issue("ISA-2", "indeterminate")], nextPageToken: "p2" } },
+      { status: 200, body: { issues: [issue("ISA-1", "done")] } },
+    ]);
+    const out = await new JiraClient(cfg, f.impl).projectIssues("ISA");
+    expect(out.map((i) => [i.key, i.done])).toEqual([
+      ["ISA-2", false],
+      ["ISA-1", true],
+    ]);
+    expect(f.calls[1].url).toContain("nextPageToken=p2");
+  });
+});

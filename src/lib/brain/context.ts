@@ -41,7 +41,9 @@ export async function projectBlock(projectId: string): Promise<string> {
       ? reqs.map(
           (r) =>
             `- [${r.id}] ${r.title} (status: ${r.status}${r.approvedBy ? `, approved by ${r.approvedBy}` : ""}${
-              r.jiraIssueKey ? `, Jira ${r.jiraIssueKey} ${jiraBrowseUrl(r.jiraIssueKey)}` : ", no ticket yet"
+              r.jiraIssueKey
+                ? `, Jira ${r.jiraIssueKey}${r.jiraStatus ? ` (${r.jiraStatus})` : ""} ${jiraBrowseUrl(r.jiraIssueKey)}`
+                : ", no ticket yet"
             })${r.description ? `\n  ${r.description.replace(/\n/g, "\n  ")}` : ""}`,
         )
       : ["(none yet)"]),

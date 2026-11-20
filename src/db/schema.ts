@@ -79,6 +79,8 @@ export const requirements = pgTable(
     status: requirementStatus("status").notNull().default("proposed"),
     approvedBy: text("approved_by"),
     jiraIssueKey: text("jira_issue_key"),
+    // The ticket's status in Jira as of the last sync, e.g. "Em andamento".
+    jiraStatus: text("jira_status"),
     ...timestamps,
   },
   (t) => [index("requirements_project_idx").on(t.projectId)],

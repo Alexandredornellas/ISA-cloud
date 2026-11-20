@@ -123,6 +123,7 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
                       rel="noreferrer"
                     >
                       {r.jiraIssueKey}
+                      {r.jiraStatus ? ` · ${r.jiraStatus}` : ""}
                     </a>
                   ) : null}
                 </span>

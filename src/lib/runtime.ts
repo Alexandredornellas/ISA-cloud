@@ -2,6 +2,7 @@ import { claudeStructured } from "@/lib/brain/llm";
 import { RecallClient, recallConfigFromEnv } from "@/lib/recall";
 import { SlackClient, slackConfigFromEnv } from "@/lib/slack";
 import { liveGoogle } from "@/lib/google";
+import { JiraClient, jiraConfigFromEnv } from "@/lib/jira";
 import { tick, type WorkerDeps } from "@/lib/worker";
 
 function optional<T>(make: () => T): T | null {
@@ -24,6 +25,7 @@ export function liveWorkerDeps(): WorkerDeps {
     recall: optional(() => new RecallClient(recallConfigFromEnv())),
     slack: liveSlack(),
     google: liveGoogle(),
+    jira: optional(() => new JiraClient(jiraConfigFromEnv())),
     llm: process.env.ANTHROPIC_API_KEY ? claudeStructured : null,
   };
 }

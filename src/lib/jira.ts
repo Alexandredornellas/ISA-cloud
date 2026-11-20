@@ -78,6 +78,8 @@ export class MissingIssueTypeError extends Error {
   }
 }
 
+export type JiraIssueState = { key: string; summary: string; status: string; done: boolean };
+
 type ProjectIssueType = { id: string; name: string; untranslatedName?: string; subtask?: boolean };
 
 // Common translations of Jira's default issue types, for sites not in English.
@@ -168,7 +170,34 @@ export class JiraClient {
     }));
   }
 
-  // Cheap call that proves the credentials and project key work.
+  /** Every ticket in a Jira project (up to `limit`), with its status. */
+  async projectIssues(projectKey: string, limit = 1000): Promise<JiraIssueState[]> {
+    const out: JiraIssueState[] = [];
+    let nextPageToken: string | undefined;
+    do {
+      const params = new URLSearchParams({
+        jql: `project = "${projectKey.replace(/"/g, "")}" ORDER BY created DESC`,
+        maxResults: "100",
+        fields: "summary,status",
+      });
+      if (nextPageToken) params.set("nextPageToken", nextPageToken);
+      const page = await this.request<{
+        issues: { key: string; fields: { summary: string; status?: { name: string; statusCategory?: { key: string } } } }[];
+        nextPageToken?: string;
+      }>("GET", `/search/jql?${params}`);
+      for (const i of page.issues) {
+        out.push({
+          key: i.key,
+          summary: i.fields.summary,
+          status: i.fields.status?.name ?? "",
+          done: i.fields.status?.statusCategory?.key === "done",
+        });
+      }
+      nextPageToken = page.nextPageToken;
+    } while (nextPageToken && out.length < limit);
+    return out;
+  }
+
   private issueTypes = new Map<string, ProjectIssueType[]>();
 
   /**

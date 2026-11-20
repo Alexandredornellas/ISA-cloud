@@ -7,7 +7,8 @@ import { describeAction } from "@/lib/plan";
 import { jiraBrowseUrl } from "@/lib/jira";
 import { eventText, projectBlock } from "./context";
 import type { StructuredLLM } from "./llm";
-import { processEvent, refileEvent, reviseProposal } from "./pipeline";
+import { processEvent, redraftProject, refileEvent, reviseProposal } from "./pipeline";
+import { syncJira, type JiraReader } from "@/lib/jira-sync";
 
 export type ChatTool = {
   name: string;
@@ -22,7 +23,11 @@ function tool<S extends z.ZodType>(t: { name: string; description: string; input
 
 const id = z.string().describe("An id exactly as ISA listed it");
 
-export function chatTools(llm: StructuredLLM): ChatTool[] {
+export function chatTools(llm: StructuredLLM, jira: JiraReader | null = null): ChatTool[] {
+  // Check Jira first, so ISA never reports tickets that were deleted or finished there.
+  const fresh = async (projectId: string) => {
+    if (jira) await syncJira(jira, projectId).catch(() => undefined);
+  };
   return [
     tool({
       name: "list_projects",
@@ -41,7 +46,10 @@ export function chatTools(llm: StructuredLLM): ChatTool[] {
       name: "get_project",
       description: "Read one project: summary, people, rules, and its requirements with their Jira tickets.",
       inputSchema: z.object({ projectId: id }),
-      run: async ({ projectId }) => projectBlock(projectId),
+      run: async ({ projectId }) => {
+        await fresh(projectId);
+        return projectBlock(projectId);
+      },
     }),
     tool({
       name: "list_project_items",
@@ -49,6 +57,7 @@ export function chatTools(llm: StructuredLLM): ChatTool[] {
         "List the meetings, emails, Slack messages and notes filed under a project, oldest first, with their ids, plus the Jira tickets ISA created for it with links.",
       inputSchema: z.object({ projectId: id }),
       run: async ({ projectId }) => {
+        await fresh(projectId);
         const links = await db.select().from(schema.eventProjects).where(eq(schema.eventProjects.projectId, projectId));
         const evs = links.length
           ? await db.query.events.findMany({
@@ -57,7 +66,7 @@ export function chatTools(llm: StructuredLLM): ChatTool[] {
             })
           : [];
         const tickets = await db
-          .select({ key: schema.requirements.jiraIssueKey, title: schema.requirements.title, status: schema.requirements.status })
+          .select({ key: schema.requirements.jiraIssueKey, title: schema.requirements.title, status: schema.requirements.jiraStatus })
           .from(schema.requirements)
           .where(eq(schema.requirements.projectId, projectId));
         return [
@@ -119,6 +128,18 @@ export function chatTools(llm: StructuredLLM): ChatTool[] {
             ].join("\n"),
           )
           .join("\n\n");
+      },
+    }),
+    tool({
+      name: "draft_tickets_again",
+      description:
+        "Check the project's tickets in Jira, then draft a proposal from its latest items for every requirement that has no ticket (e.g. tickets deleted in Jira). The owner approves it in the inbox.",
+      inputSchema: z.object({ projectId: id }),
+      run: async ({ projectId }) => {
+        const proposalId = await redraftProject(projectId, llm, jira);
+        if (!proposalId) return "Checked Jira: every requirement still has its ticket, so there is nothing to draft.";
+        const p = await db.query.proposals.findFirst({ where: eq(schema.proposals.id, proposalId) });
+        return `Drafted ${proposalId} for the inbox: ${p?.plan.summary ?? ""}\n${(p?.plan.actions ?? []).map((a) => `Will: ${describeAction(a)}`).join("\n")}`;
       },
     }),
     tool({
