@@ -27,8 +27,16 @@ const id = z.string().describe("An id exactly as ISA listed it");
 
 export function chatTools(llm: StructuredLLM, jira: JiraReader | null = null, searcher: JiraSearcher | null = null): ChatTool[] {
   // Check Jira first, so ISA never reports tickets that were deleted or finished there.
-  const fresh = async (projectId: string) => {
-    if (jira) await syncJira(jira, projectId).catch(() => undefined);
+  // Returns a line saying what ISA checked, so it can tell the owner where its answer comes from.
+  const fresh = async (projectId: string): Promise<string> => {
+    if (!jira) return "Jira is not connected, so the tickets below are ISA's last record, not checked in Jira.";
+    try {
+      const r = await syncJira(jira, projectId);
+      const gone = r.unlinked ? ` ${r.unlinked} ticket(s) were deleted in Jira and are now unlinked.` : "";
+      return `Checked Jira just now: ${r.checked - r.unlinked} of ${r.checked} linked ticket(s) still exist in Jira.${gone}`;
+    } catch (err) {
+      return `Could not check Jira just now (${err instanceof Error ? err.message.slice(0, 200) : "unknown error"}), so the tickets below may be out of date.`;
+    }
   };
   return [
     tool({
@@ -49,8 +57,8 @@ export function chatTools(llm: StructuredLLM, jira: JiraReader | null = null, se
       description: "Read one project: summary, people, rules, and its requirements with their Jira tickets.",
       inputSchema: z.object({ projectId: id }),
       run: async ({ projectId }) => {
-        await fresh(projectId);
-        return projectBlock(projectId);
+        const checked = await fresh(projectId);
+        return `${checked}\n\n${await projectBlock(projectId)}`;
       },
     }),
     tool({
@@ -59,7 +67,7 @@ export function chatTools(llm: StructuredLLM, jira: JiraReader | null = null, se
         "List the meetings, emails, Slack messages and notes filed under a project, oldest first, with their ids, plus the Jira tickets ISA created for it with links.",
       inputSchema: z.object({ projectId: id }),
       run: async ({ projectId }) => {
-        await fresh(projectId);
+        const checked = await fresh(projectId);
         const links = await db.select().from(schema.eventProjects).where(eq(schema.eventProjects.projectId, projectId));
         const evs = links.length
           ? await db.query.events.findMany({
@@ -72,6 +80,7 @@ export function chatTools(llm: StructuredLLM, jira: JiraReader | null = null, se
           .from(schema.requirements)
           .where(eq(schema.requirements.projectId, projectId));
         return [
+          checked,
           "Items:",
           ...(evs.length
             ? evs.map((e) => `- ${e.id}: ${e.occurredAt.toISOString().slice(0, 16).replace("T", " ")} ${e.source} "${e.title}"${e.author ? ` from ${e.author}` : ""}`)
