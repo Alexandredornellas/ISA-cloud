@@ -40,6 +40,7 @@ const SOURCE_LABEL: Record<string, string> = {
   gmail: "Email",
   slack: "Slack",
   manual: "Note",
+  jira: "Jira",
 };
 
 const STATUS_STYLE: Record<string, string> = {

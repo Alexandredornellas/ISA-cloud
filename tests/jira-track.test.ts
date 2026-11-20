@@ -113,3 +113,49 @@ describe("trackJira", () => {
     expect(snap?.deletedAt).not.toBeNull();
   });
 });
+
+describe("reviewing changes people made in Jira", () => {
+  it("files a title or description change as an item and drafts a suggestion, once", async () => {
+    const { reviewJiraChanges } = await import("@/lib/jira-review");
+    const p = await setup();
+    const state: { details: TicketDetail[]; history: ChangelogEntry[] } = { details: [detail()], history: [] };
+    await trackJira(fakeJira(state));
+    state.details = [detail({ summary: "Login with SMS only", updated: new Date("2026-11-20T12:00:00Z") })];
+    state.history.push({
+      id: "9",
+      at: new Date("2026-11-20T12:00:00Z"),
+      author: "Bruno",
+      authorAccountId: "bruno",
+      items: [
+        { field: "summary", from: "Login with MFA", to: "Login with SMS only" },
+        { field: "status", from: "To Do", to: "In Progress" },
+      ],
+    });
+    const { changes } = await trackJira(fakeJira(state));
+    const inputs: string[] = [];
+    const llm = (async (req: { input: string }) => {
+      inputs.push(req.input);
+      return {
+        summary: "Bruno changed the title to SMS only.",
+        projectName: null,
+        people: [],
+        requirementChanges: [],
+        actions: [{ type: "jira_update", requirementRef: "x", issueKey: "SCRUM-1", summary: "Login with MFA", description: null }],
+        openQuestions: [],
+      };
+    }) as never;
+
+    const drafted = await reviewJiraChanges(changes, llm);
+    expect(drafted).toHaveLength(1);
+    expect(inputs[0]).toContain("title before:\nLogin with MFA");
+    expect(inputs[0]).not.toContain("status before");
+    const [ev] = await db.select().from(schema.events).where(eq(schema.events.source, "jira"));
+    expect(ev.title).toBe("SCRUM-1 title changed by Bruno");
+    const proposal = await db.query.proposals.findFirst({ where: eq(schema.proposals.id, drafted[0]) });
+    expect(proposal).toMatchObject({ projectId: p.id, status: "pending" });
+
+    expect(await reviewJiraChanges(changes, llm)).toHaveLength(0);
+    await db.delete(schema.proposals);
+    await db.delete(schema.events);
+  });
+});

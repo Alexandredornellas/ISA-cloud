@@ -10,6 +10,7 @@ import { pollGmail } from "@/lib/gmail";
 import { scheduleCalendarBots } from "@/lib/calendar";
 import { syncJira, type JiraReader } from "@/lib/jira-sync";
 import { trackJira, type JiraTracker } from "@/lib/jira-track";
+import { reviewJiraChanges } from "@/lib/jira-review";
 
 export type WorkerDeps = {
   recall: RecallClient | null;
@@ -41,8 +42,13 @@ export async function tick(deps: WorkerDeps) {
   // Every 2 minutes, notice tickets deleted, moved along or finished in Jira.
   const jira = deps.jira && every(12) ? await syncJira(deps.jira).then((r) => r.unlinked + r.done).catch(logFailure("jira")) : 0;
   // Then record what people changed on ISA's tickets (from Jira's change history).
+  // Changes to what a ticket says become an item ISA reviews with the owner.
   const ticketChanges =
-    deps.jira && every(12) ? await trackJira(deps.jira).then((r) => r.changes.length).catch(logFailure("jira-track")) : 0;
+    deps.jira && every(12)
+      ? await trackJira(deps.jira)
+          .then(async (r) => (deps.llm ? (await reviewJiraChanges(r.changes, deps.llm)).length : r.changes.length))
+          .catch(logFailure("jira-track"))
+      : 0;
   const processed = deps.llm ? await processNewEvents(deps.llm) : 0;
   return { transcripts, slack, email, meetings, jira, ticketChanges, processed };
 }

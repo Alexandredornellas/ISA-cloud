@@ -66,6 +66,7 @@ const SOURCE_NAME: Record<string, string> = {
   gmail: "Email",
   slack: "Slack message",
   manual: "Note",
+  jira: "Change someone made directly in Jira",
 };
 
 /** One incoming item as text, including where a reply on the same channel would go. */
