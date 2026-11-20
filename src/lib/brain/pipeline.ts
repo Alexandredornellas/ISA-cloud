@@ -6,10 +6,17 @@ import { eventText, projectBlock, projectsContext } from "./context";
 import { PROPOSE_SYSTEM, SORT_SYSTEM } from "./prompts";
 import type { StructuredLLM } from "./llm";
 import { formatsText, ticketFormats } from "@/lib/ticket-formats";
+import { relatedTicketsBlock } from "@/lib/jira-research";
 
 /** Context for drafting: the owner's ticket formats, then the project. */
-async function withFormats(context: string): Promise<string> {
-  return `${formatsText(await ticketFormats())}\n\n${context}`;
+async function withFormats(context: string, terms: string[] = []): Promise<string> {
+  const related = await relatedTicketsBlock(terms);
+  return [formatsText(await ticketFormats()), context, related].filter(Boolean).join("\n\n");
+}
+
+/** What to search Jira for: the terms ISA picked when it sorted these items. */
+function termsOf(events: EventRow[]): string[] {
+  return [...new Set(events.flatMap((e) => e.sortResult?.searchTerms ?? []))].slice(0, 5);
 }
 
 type EventRow = typeof schema.events.$inferSelect;
@@ -39,6 +46,7 @@ export async function processEvent(eventId: string, llm: StructuredLLM): Promise
       effort: "medium",
     });
     const sort = cleanSort(raw, projectIds);
+    const terms = sort.searchTerms ?? [];
 
     const proposalIds: string[] = [];
     let unsure = false;
@@ -47,7 +55,7 @@ export async function processEvent(eventId: string, llm: StructuredLLM): Promise
       if (match.confidence === "high") {
         await linkEvent(event.id, match.projectId, match.relation, match.note);
         if (match.relation !== "context") {
-          const id = await proposeUpdate(match.projectId, [event], llm);
+          const id = await proposeUpdate(match.projectId, [event], llm, terms);
           if (id) proposalIds.push(id);
         }
       } else {
@@ -57,7 +65,7 @@ export async function processEvent(eventId: string, llm: StructuredLLM): Promise
     }
 
     if (sort.newProject) {
-      proposalIds.push(await proposeNewProject(event, sort.newProject.name, llm));
+      proposalIds.push(await proposeNewProject(event, sort.newProject.name, llm, terms));
     }
 
     const status = sort.ignore && proposalIds.length === 0 && sort.matches.length === 0 ? "ignored" : unsure ? "unsure" : "sorted";
@@ -100,12 +108,17 @@ async function linkEvent(eventId: string, projectId: string, relation: string, n
 }
 
 /** Draft an update for an existing project from new events. Returns null when nothing changes. */
-export async function proposeUpdate(projectId: string, events: EventRow[], llm: StructuredLLM): Promise<string | null> {
+export async function proposeUpdate(
+  projectId: string,
+  events: EventRow[],
+  llm: StructuredLLM,
+  terms: string[] = termsOf(events),
+): Promise<string | null> {
   const project = await db.query.projects.findFirst({ where: eq(schema.projects.id, projectId) });
   if (!project) throw new Error("Project not found");
   const plan = await llm({
     system: PROPOSE_SYSTEM,
-    context: await withFormats(`The project:\n${await projectBlock(projectId)}`),
+    context: await withFormats(`The project:\n${await projectBlock(projectId)}`, terms),
     input: `New items:\n${events.map(eventText).join("\n\n")}`,
     schema: PlanSchema,
     effort: "high",
@@ -129,7 +142,7 @@ export async function proposeUpdate(projectId: string, events: EventRow[], llm: 
  * Work that fits no project: create the project right away and file the item under it, so its
  * transcript and history are there at once. The drafted tickets still wait for approval.
  */
-async function proposeNewProject(event: EventRow, name: string, llm: StructuredLLM): Promise<string> {
+async function proposeNewProject(event: EventRow, name: string, llm: StructuredLLM, terms: string[] = termsOf([event])): Promise<string> {
   const [project] = await db
     .insert(schema.projects)
     .values({ name, jiraProjectKey: process.env.JIRA_PROJECT_KEY ?? null })
@@ -137,7 +150,7 @@ async function proposeNewProject(event: EventRow, name: string, llm: StructuredL
   await linkEvent(event.id, project.id, "new", "Started this project");
   const plan = await llm({
     system: PROPOSE_SYSTEM,
-    context: await withFormats(`This is a new project. Suggested name: ${name}`),
+    context: await withFormats(`This is a new project. Suggested name: ${name}`, terms),
     input: `New items:\n${eventText(event)}`,
     schema: PlanSchema,
     effort: "high",
@@ -228,6 +241,7 @@ export async function reviseProposal(proposalId: string, instruction: string, ll
       proposal.projectId
         ? `The project:\n${await projectBlock(proposal.projectId)}`
         : `This is a new project. Suggested name: ${proposal.plan.projectName ?? ""}`,
+      termsOf(events),
     ),
     input: [
       `New items:\n${events.map(eventText).join("\n\n") || "(none)"}`,

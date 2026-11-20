@@ -21,7 +21,8 @@ beforeEach(async () => {
 });
 
 /** A fake Claude that answers sort and propose calls from scripted values, and records the calls. */
-function scripted(sort: SortResult, plan: Plan) {
+function scripted(given: Omit<SortResult, "searchTerms"> & { searchTerms?: string[] }, plan: Plan) {
+  const sort: SortResult = { searchTerms: [], ...given };
   const calls: { system: string; context: string; input: string }[] = [];
   const llm: StructuredLLM = async (req) => {
     calls.push(req);
@@ -198,6 +199,7 @@ describe("cleanSort", () => {
         ],
         newProject: null,
         ignore: false,
+        searchTerms: [],
         reason: "",
       },
       new Set(["a"]),
@@ -227,5 +229,35 @@ describe("redraftFromEvent", () => {
       Reset: ["SCRUM-2", "Concluído", "done"],
     });
     expect(calls[0].input).toContain("We need MFA on login");
+  });
+});
+
+describe("Jira research while drafting", () => {
+  it("shows the draft related tickets already in Jira", async () => {
+    const { useJiraSearcher } = await import("@/lib/jira-research");
+    const searched: string[][] = [];
+    useJiraSearcher({
+      searchText: async (terms) => {
+        searched.push(terms);
+        return [
+          {
+            key: "SCRUM-8", issueType: "Story", summary: "SMS codes for sign-in", description: "Send a 6-digit code", status: "In Progress",
+            assignee: "Ana", sprint: "Sprint 4", epic: null, labels: [], updated: null, url: "https://x/browse/SCRUM-8",
+            comments: [{ author: "Bo", at: null, text: "Twilio chosen" }],
+          },
+        ];
+      },
+    });
+    try {
+      const [e] = await db.insert(schema.events).values({ source: "manual", externalId: crypto.randomUUID(), title: "MFA", occurredAt: new Date(), content: "We need MFA" }).returning();
+      const { llm, calls } = scripted({ matches: [], newProject: { name: "Login", reason: "" }, ignore: false, reason: "", searchTerms: ["MFA", "OTP"] }, plan);
+      await processEvent(e.id, llm);
+      expect(searched).toEqual([["MFA", "OTP"]]);
+      const draft = calls.find((c) => !c.system.includes("decide where one new item belongs"))!;
+      expect(draft.context).toContain("SCRUM-8 [Story] SMS codes for sign-in");
+      expect(draft.context).toContain("Comment by Bo");
+    } finally {
+      useJiraSearcher(null);
+    }
   });
 });

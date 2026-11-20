@@ -277,6 +277,29 @@ export class JiraClient {
     return out;
   }
 
+  /**
+   * Tickets in any project whose title, description or comments mention one of these terms,
+   * most recently updated first, with their latest comments.
+   */
+  async searchText(terms: string[], limit = 10): Promise<FoundTicket[]> {
+    const clean = [...new Set(terms.map((t) => t.replace(/["\\[\](){}*?~^!:+\-&|/]/g, " ").replace(/\s+/g, " ").trim()).filter((t) => t.length > 1))].slice(0, 5);
+    if (!clean.length) return [];
+    const sprintField = await this.sprintFieldId().catch(() => null);
+    const fields = ["summary", "description", "status", "assignee", "labels", "parent", "issuetype", "updated", "comment", ...(sprintField ? [sprintField] : [])];
+    const params = new URLSearchParams({
+      jql: `${clean.map((t) => `text ~ "${t}"`).join(" OR ")} ORDER BY updated DESC`,
+      maxResults: String(limit),
+      fields: fields.join(","),
+    });
+    const page = await this.request<{ issues: { key: string; fields: Record<string, unknown> }[] }>("GET", `/search/jql?${params}`);
+    return page.issues.map((i) => {
+      const comments = ((i.fields.comment as { comments?: { author?: { displayName?: string }; body?: unknown; created?: string }[] })?.comments ?? [])
+        .slice(-3)
+        .map((c) => ({ author: c.author?.displayName ?? null, at: c.created ? new Date(c.created) : null, text: adfToText(c.body) }));
+      return { ...ticketDetail(i.key, i.fields, sprintField), url: this.issueUrl(i.key), comments };
+    });
+  }
+
   /** A ticket's change history, oldest first: who changed which field, from what, to what, and when. */
   async changelog(key: string): Promise<ChangelogEntry[]> {
     const out: ChangelogEntry[] = [];
@@ -327,6 +350,11 @@ export type TicketDetail = {
   epic: string | null;
   labels: string[];
   updated: Date | null;
+};
+
+export type FoundTicket = TicketDetail & {
+  url: string;
+  comments: { author: string | null; at: Date | null; text: string }[];
 };
 
 export type ChangelogEntry = {

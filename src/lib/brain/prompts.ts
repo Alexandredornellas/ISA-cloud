@@ -17,6 +17,7 @@ You receive the list of current projects (with their requirements, people and th
 - confidence per match: "high" only when the item clearly refers to that project (same feature, same people, explicit reference, or an obvious follow-up in the same thread). Use "medium" or "low" when you are guessing; the owner will be asked to confirm.
 - newProject: set it when the item introduces work that fits none of the existing projects. Give a short, plain project name (e.g. "Customer portal login"). An item can both match existing projects and start a new one.
 - ignore: true only when the item concerns no project and starts none (small talk, newsletters, unrelated mail).
+- searchTerms: unless ignored, 2 or 3 short terms (one to three words each) to search Jira for tickets about the same topic. Include a synonym or the technical name, e.g. "MFA", "two-factor", "OTP".
 
 Rules:
 - Use only project ids and requirement ids that appear in the list.
@@ -43,5 +44,10 @@ You receive the project as it stands now (or nothing, for a new project) and the
   - slack_message or email to tell people what was decided. Reply on the channel the item came from when the item shows where to reply: for Slack use the given channel and thread; for email reply in the given thread to the sender. Tell the people who asked for or approved the change, and the people whose work it affects. Slack messages are posted by ISA, the owner's assistant, so write them as ISA; to message one person on Slack, use their Slack user id (U...) as the channel. Emails go out from the owner's mailbox, so write them in the owner's voice. Messages are short, friendly, and include Jira ticket keys that already exist. For tickets created in this same plan the key does not exist yet, so name the requirement instead.
   - Do not message anyone you have no channel for. Do not create a ticket for a requirement that already has one.
 - openQuestions: anything unclear that a good analyst would ask before work starts, such as missing acceptance criteria or conflicting statements. Do not invent answers.
+
+When you are given related tickets already in Jira, read them like an analyst before drafting:
+- Do not create a ticket for work an existing ticket already covers. Update it or comment on it instead (set issueKey to its key), or mention it in the summary.
+- Point out conflicts with existing tickets in openQuestions, naming the ticket key.
+- Tickets that only share a word with the item are not related; ignore them.
 
 If the items change nothing (pure context), return empty requirementChanges and actions, and say so in the summary.`;

@@ -10,6 +10,7 @@ import type { StructuredLLM } from "./llm";
 import { processEvent, redraftProject, refileEvent, reviseProposal } from "./pipeline";
 import { syncJira, type JiraReader } from "@/lib/jira-sync";
 import { describeChange, ticketHistory } from "@/lib/jira-track";
+import { researchJira, type JiraSearcher } from "@/lib/jira-research";
 
 export type ChatTool = {
   name: string;
@@ -24,7 +25,7 @@ function tool<S extends z.ZodType>(t: { name: string; description: string; input
 
 const id = z.string().describe("An id exactly as ISA listed it");
 
-export function chatTools(llm: StructuredLLM, jira: JiraReader | null = null): ChatTool[] {
+export function chatTools(llm: StructuredLLM, jira: JiraReader | null = null, searcher: JiraSearcher | null = null): ChatTool[] {
   // Check Jira first, so ISA never reports tickets that were deleted or finished there.
   const fresh = async (projectId: string) => {
     if (jira) await syncJira(jira, projectId).catch(() => undefined);
@@ -129,6 +130,18 @@ export function chatTools(llm: StructuredLLM, jira: JiraReader | null = null): C
             ].join("\n"),
           )
           .join("\n\n");
+      },
+    }),
+    tool({
+      name: "research_jira",
+      description:
+        "Search all of Jira for tickets about a topic: titles, descriptions and comments, in every project, including tickets ISA did not create. Returns each ticket's key, link, status, assignee, sprint, epic, description and latest comments. Use it before answering anything about a topic.",
+      inputSchema: z.object({
+        terms: z.array(z.string()).describe("2 or 3 short search terms for the topic, including synonyms, e.g. [\"MFA\", \"two-factor\", \"OTP\"]"),
+      }),
+      run: async ({ terms }) => {
+        if (!searcher) return "Jira is not connected, so ISA cannot search it.";
+        return researchJira(searcher, terms, 15);
       },
     }),
     tool({

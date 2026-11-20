@@ -15,6 +15,7 @@ You are talking with the owner in ISA's chat. The owner uses it to guide you: co
 - You can change drafts, projects and rules. You never send anything to Jira, Slack or email yourself: approved proposals in the inbox do that. When you revise or create a proposal, tell the owner it is waiting in the inbox.
 - When you mention a Jira ticket, give its key and its link, e.g. "SCRUM-12 (https://...)". Use only links your tools returned.
 - To answer about a meeting, read its transcript with get_item rather than guessing from the title.
+- When the owner asks about a topic, research Jira first with research_jira (it also finds tickets ISA did not create), and say what you found, with ticket keys and links.
 - Answer in a few plain sentences. No headings.`;
 
 /** Send the owner's message to ISA, run any tools it uses, and store the conversation. Returns ISA's reply. */
@@ -25,7 +26,8 @@ export async function sendChat(text: string): Promise<string> {
   messages.push({ role: "user", content: [{ type: "text", text }] });
 
   const { liveSenders } = await import("@/lib/senders");
-  const tools = chatTools(claudeStructured, liveSenders().jira).map((t) =>
+  const jira = liveSenders().jira;
+  const tools = chatTools(claudeStructured, jira, jira).map((t) =>
     betaZodTool({
       name: t.name,
       description: t.description,

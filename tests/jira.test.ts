@@ -137,3 +137,30 @@ describe("ticket tracking reads", () => {
     expect(f.calls[1].url).toContain("startAt=1");
   });
 });
+
+describe("Jira topic research", () => {
+  it("searches titles, descriptions and comments for every term", async () => {
+    const f = fakeFetch([
+      { status: 200, body: [] },
+      {
+        status: 200,
+        body: {
+          issues: [
+            {
+              key: "OPS-3",
+              fields: {
+                summary: "Two-factor for admins",
+                status: { name: "Done" },
+                comment: { comments: [{ author: { displayName: "Bo" }, created: "2026-11-01T10:00:00.000+0000", body: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Shipped" }] }] } }] },
+              },
+            },
+          ],
+        },
+      },
+    ]);
+    const found = await new JiraClient(cfg, f.impl).searchText(['MFA', 'two-factor "auth"', "x"]);
+    expect(new URL(f.calls[1].url).searchParams.get("jql")).toBe('text ~ "MFA" OR text ~ "two factor auth" ORDER BY updated DESC');
+    expect(found[0]).toMatchObject({ key: "OPS-3", status: "Done", url: "https://acme.atlassian.net/browse/OPS-3" });
+    expect(found[0].comments[0]).toMatchObject({ author: "Bo", text: "Shipped" });
+  });
+});

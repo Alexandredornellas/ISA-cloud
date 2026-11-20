@@ -96,6 +96,9 @@ export const SortResultSchema = z.object({
     .nullable()
     .describe("Set when the item introduces work that fits no existing project"),
   ignore: z.boolean().describe("True when the item concerns no project and starts none"),
+  searchTerms: z
+    .array(z.string())
+    .describe("2 or 3 short terms to search Jira for related tickets, including synonyms, e.g. MFA, two-factor, OTP"),
   reason: z.string(),
 });
 export type SortResult = z.infer<typeof SortResultSchema>;
