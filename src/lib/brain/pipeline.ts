@@ -1,4 +1,4 @@
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { syncJira, type JiraReader } from "@/lib/jira-sync";
 import { db, schema } from "@/db";
 import { PlanSchema, SortResultSchema, type Plan, type SortResult } from "@/lib/plan";
@@ -117,6 +117,19 @@ export async function proposeUpdate(
 ): Promise<string | null> {
   const project = await db.query.projects.findFirst({ where: eq(schema.projects.id, projectId) });
   if (!project) throw new Error("Project not found");
+
+  // A suggestion for this project is still waiting for the owner: fold the new items into it,
+  // so the owner sees one up-to-date card per project instead of overlapping ones.
+  const waiting = await db.query.proposals.findFirst({
+    where: and(
+      eq(schema.proposals.projectId, projectId),
+      eq(schema.proposals.status, "pending"),
+      inArray(schema.proposals.kind, ["update", "new_project"]),
+    ),
+    orderBy: desc(schema.proposals.createdAt),
+  });
+  if (waiting) return mergeIntoWaiting(waiting, projectId, events, llm, terms);
+
   const plan = await llm({
     system: PROPOSE_SYSTEM,
     context: await withFormats(`The project:\n${await projectBlock(projectId)}`, terms),
@@ -137,6 +150,41 @@ export async function proposeUpdate(
     })
     .returning({ id: schema.proposals.id });
   return row.id;
+}
+
+/** Redraft a waiting suggestion with new items, keeping one card per project. */
+async function mergeIntoWaiting(
+  waiting: typeof schema.proposals.$inferSelect,
+  projectId: string,
+  events: EventRow[],
+  llm: StructuredLLM,
+  terms: string[],
+): Promise<string> {
+  const fresh = events.filter((e) => !waiting.eventIds.includes(e.id));
+  if (!fresh.length) return waiting.id;
+  const earlier = waiting.eventIds.length
+    ? await db.query.events.findMany({ where: inArray(schema.events.id, waiting.eventIds), orderBy: asc(schema.events.occurredAt) })
+    : [];
+  const plan = await llm({
+    system: PROPOSE_SYSTEM,
+    context: await withFormats(`The project:\n${await projectBlock(projectId)}`, terms),
+    input: [
+      `Items you already drafted from:\n${earlier.map(eventText).join("\n\n") || "(none)"}`,
+      `Your draft, still waiting for the owner's approval (nothing in it exists in Jira yet):\n${JSON.stringify(waiting.plan, null, 2)}`,
+      `New items:\n${fresh.map(eventText).join("\n\n")}`,
+      "Return the whole updated draft with the new items merged in. Keep one epic and one ticket per piece of work: extend or correct what the draft already has instead of adding duplicates. Drop open questions the new items answer. Start the summary with what the new items changed.",
+    ].join("\n\n"),
+    schema: PlanSchema,
+    effort: "high",
+  });
+  const cleaned = cleanPlan(
+    waiting.kind === "new_project" ? { ...plan, projectName: plan.projectName || waiting.plan.projectName } : { ...plan, projectName: null },
+  );
+  await db
+    .update(schema.proposals)
+    .set({ plan: cleaned, eventIds: [...waiting.eventIds, ...fresh.map((e) => e.id)], updatedAt: new Date() })
+    .where(eq(schema.proposals.id, waiting.id));
+  return waiting.id;
 }
 
 /**

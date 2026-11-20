@@ -261,3 +261,27 @@ describe("Jira research while drafting", () => {
     }
   });
 });
+
+describe("one card per project", () => {
+  it("folds a new item into the suggestion still waiting for that project", async () => {
+    const mk = (externalId: string, title: string) =>
+      db.insert(schema.events).values({ source: "slack", externalId, title, occurredAt: new Date(), content: title }).returning();
+    const [e1] = await mk("m1", "We need a job categories dropdown");
+    const first = scripted({ matches: [], newProject: { name: "Job categories", reason: "" }, ignore: false, reason: "" }, plan);
+    const out1 = await processEvent(e1.id, first.llm);
+    const project = await db.query.projects.findFirst();
+    const [e2] = await mk("m2", "Zoom: the dropdown goes on the job form");
+    const second = scripted(
+      { matches: [{ projectId: project!.id, relation: "clarification", confidence: "high", requirementIds: [], note: "" }], newProject: null, ignore: false, reason: "" },
+      { ...plan, summary: "Merged" },
+    );
+    const out2 = await processEvent(e2.id, second.llm);
+
+    expect(out2).toEqual({ kind: "filed", proposalIds: out1.kind === "filed" ? out1.proposalIds : [] });
+    const all = await db.query.proposals.findMany();
+    expect(all).toHaveLength(1);
+    expect(all[0].eventIds).toEqual([e1.id, e2.id]);
+    expect(all[0].plan.summary).toBe("Merged");
+    expect(second.calls.at(-1)!.input).toContain("still waiting for the owner's approval");
+  });
+});

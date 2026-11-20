@@ -64,7 +64,9 @@ export function NotificationCard({
   const [epicMode, setEpicMode] = useState<"new" | "existing">("new");
   const [epicName, setEpicName] = useState(epicAction?.summary ?? "");
   const [place, setPlace] = useState(n.places[0]?.projectId ?? "new");
-  const first = n.sources[0];
+  // The header names the latest source; a card that grew with new items says so.
+  const first = n.sources.at(-1);
+  const more = n.sources.length - 1;
   const src = SOURCE[first?.source ?? "manual"] ?? SOURCE.manual;
   const epicIndex = epicAction ? actions.indexOf(epicAction) : -1;
   const chosen = kept.filter((v, i) => v && !(epicMode === "existing" && i === epicIndex)).length;
@@ -105,6 +107,7 @@ export function NotificationCard({
           <span className="block font-semibold">{failed ? `Something failed: ${n.title}` : n.title}</span>
           <span className="block text-sm text-muted">
             {first ? `${first.author ? `${first.author.replace(/\s*<.*>$/, "")} in ` : ""}${src.label} · ${time(first.at)}` : time(n.createdAt)}
+            {more > 0 ? ` · updated, ${more + 1} sources` : ""}
           </span>
         </span>
         <span className="flex-none rounded-md bg-bg px-2 py-0.5 text-xs font-medium">
