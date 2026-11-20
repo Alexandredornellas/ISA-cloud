@@ -1,4 +1,4 @@
-import { desc, eq, inArray, notInArray, or, and, gt } from "drizzle-orm";
+import { asc, desc, eq, inArray, notInArray, or, and, gt } from "drizzle-orm";
 import { db, schema } from "@/db";
 
 // Proposals for the inbox: everything pending, plus failures and results from the last day.
@@ -60,7 +60,9 @@ export async function missingTypeQuestions(proposals: { id: string; title: strin
   const rows = await db
     .select()
     .from(schema.actions)
-    .where(and(inArray(schema.actions.proposalId, failed.map((p) => p.id)), eq(schema.actions.status, "failed")));
+    .where(and(inArray(schema.actions.proposalId, failed.map((p) => p.id)), eq(schema.actions.status, "failed")))
+    // In plan order, so the question lists the tickets the way the card does.
+    .orderBy(asc(schema.actions.position));
   const out = new Map<string, MissingTypeQuestion>();
   for (const a of rows) {
     const q = (a.result as { question?: { projectKey: string; wanted: string; available: string[] } } | null)?.question;
