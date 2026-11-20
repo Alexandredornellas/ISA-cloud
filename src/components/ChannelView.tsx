@@ -56,7 +56,7 @@ export function ChannelView({
       <section aria-label="Chat with ISA">
         <h2 className="text-sm font-semibold">Chat with ISA</h2>
         <ChatPanel
-          key={projectId ?? "general"}
+          key={`${projectId ?? "general"}:${initial ?? ""}`}
           messages={messages}
           projectId={projectId}
           examples={examples}

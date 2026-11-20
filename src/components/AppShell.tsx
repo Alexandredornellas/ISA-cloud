@@ -10,10 +10,10 @@ import { Icon, type IconName } from "@/components/Icon";
  * The frame around every screen: a sidebar with Ask ISA, the projects (with what needs you in
  * each), Connections and Settings. On a phone the sidebar opens from the top bar.
  */
-export function AppShell({ channels, children }: { channels: Channel[]; children: React.ReactNode }) {
+export function AppShell({ channels, dueReminders, children }: { channels: Channel[]; dueReminders: number; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
 
-  const total = channels.reduce((n, c) => n + c.count, 0);
+  const total = channels.reduce((n, c) => n + c.count, 0) + dueReminders;
   const general = channels.find((c) => !c.id);
   const projects = channels.filter((c) => c.id && !c.done);
   const done = channels.filter((c) => c.id && c.done);
@@ -28,6 +28,7 @@ export function AppShell({ channels, children }: { channels: Channel[]; children
       </Link>
 
       <Item href="/" icon="chat" label="Ask ISA" count={general?.count ?? 0} match="general" />
+      <Item href="/reminders" icon="bell" label="Reminders" count={dueReminders} match="/reminders" />
 
       <p className="mt-4 flex items-center justify-between px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
         <span>Projects</span>
@@ -51,6 +52,7 @@ export function AppShell({ channels, children }: { channels: Channel[]; children
       </div>
 
       <div className="mt-2 space-y-0.5 border-t border-line pt-2">
+        <Item href="/meetings" icon="video" label="Join a meeting" count={0} match="/meetings" />
         <Item href="/connections" icon="plug" label="Connections" count={0} match="/connections" />
         <Item href="/settings" icon="gear" label="Settings" count={0} match="/settings" />
       </div>

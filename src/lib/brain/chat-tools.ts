@@ -11,6 +11,7 @@ import { alsoFileEvent, processEvent, redraftProject, refileEvent, reviseProposa
 import { syncJira, type JiraReader } from "@/lib/jira-sync";
 import { describeChange, ticketHistory } from "@/lib/jira-track";
 import { researchJira, type JiraSearcher } from "@/lib/jira-research";
+import { addReminder, dayKey, openReminders, remindersText, setReminderStatus } from "@/lib/reminders";
 
 export type ChatTool = {
   name: string;
@@ -245,6 +246,36 @@ export function chatTools(llm: StructuredLLM, jira: JiraReader | null = null, se
       run: async ({ eventId, projectId, about }) => {
         const proposalId = await alsoFileEvent(eventId, projectId, about, llm);
         return proposalId ? `Filed there too. Proposal ${proposalId} is waiting in that project's channel.` : "Filed there too. It changes nothing in that project.";
+      },
+    }),
+    tool({
+      name: "list_reminders",
+      description:
+        "The owner's open reminders: what they promised to send or do, for whom and by when, picked up from meetings, email and Slack. Use for 'what do I owe?', 'what's due this week?', 'what did I promise Ana?'.",
+      inputSchema: z.object({ projectId: z.string().nullable().describe("Only this project's reminders, or null for all") }),
+      run: async ({ projectId }) => `Today is ${dayKey(new Date())}.\n${remindersText(await openReminders(projectId))}`,
+    }),
+    tool({
+      name: "add_reminder",
+      description: "Add a reminder when the owner asks ('remind me to send Ana the specs by Friday'). Internal to ISA: it contacts no one.",
+      inputSchema: z.object({
+        text: z.string().describe("What to send or do, starting with a verb"),
+        person: z.string().nullable().describe("Who it is for"),
+        due: z.string().nullable().describe("Deadline as YYYY-MM-DD, resolved from today's date; null when none"),
+        projectId: z.string().nullable(),
+      }),
+      run: async (input) => {
+        const r = await addReminder(input);
+        return `Added reminder ${r.id}: ${r.text}${r.due ? `, due ${dayKey(r.due)}` : ""}.`;
+      },
+    }),
+    tool({
+      name: "complete_reminder",
+      description: "Mark a reminder done when the owner says they did it, or dismiss it when it is not needed.",
+      inputSchema: z.object({ reminderId: id, status: z.enum(["done", "dismissed"]) }),
+      run: async ({ reminderId, status }) => {
+        await setReminderStatus(reminderId, status);
+        return status === "done" ? "Marked done." : "Dismissed.";
       },
     }),
     tool({

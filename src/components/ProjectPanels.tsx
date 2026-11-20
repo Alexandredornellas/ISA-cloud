@@ -1,4 +1,5 @@
-import { addRule, removeRule } from "@/app/(app)/projects/[id]/actions";
+import Link from "next/link";
+import { addRule, removeRule, setRequirementStatus } from "@/app/(app)/projects/[id]/actions";
 import { SubmitButton } from "@/components/SubmitButton";
 
 type Requirement = { id: string; title: string; description: string; status: string; approvedBy: string | null; jiraIssueKey: string | null; jiraStatus: string | null };
@@ -11,6 +12,13 @@ const STATUS: Record<string, { label: string; style: string }> = {
   dropped: { label: "Dropped", style: "bg-bg text-muted line-through" },
 };
 
+const MOVES = [
+  { status: "approved", label: "Mark approved" },
+  { status: "done", label: "Mark done" },
+  { status: "proposed", label: "Back to proposed" },
+  { status: "dropped", label: "Drop" },
+];
+
 const ORDER = ["changed", "proposed", "approved", "done", "dropped"];
 
 export function jiraUrl(key: string) {
@@ -19,7 +27,7 @@ export function jiraUrl(key: string) {
 }
 
 /** The project's requirements, the ones that need attention first, each with its Jira ticket. */
-export function RequirementList({ requirements }: { requirements: Requirement[] }) {
+export function RequirementList({ requirements, projectId }: { requirements: Requirement[]; projectId: string }) {
   if (!requirements.length) return <p className="text-sm text-muted">No requirements yet. They appear here once you approve ISA&apos;s suggestions.</p>;
   const sorted = [...requirements].sort((a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status));
   return (
@@ -44,6 +52,22 @@ export function RequirementList({ requirements }: { requirements: Requirement[] 
                 ) : null}
                 {r.description ? <p className="whitespace-pre-wrap text-muted">{r.description}</p> : null}
                 {r.approvedBy ? <p className="text-xs text-ok">Approved by {r.approvedBy}</p> : null}
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  {MOVES.filter((m) => m.status !== r.status).map((m) => (
+                    <form key={m.status} action={setRequirementStatus}>
+                      <input type="hidden" name="id" value={r.id} />
+                      <input type="hidden" name="status" value={m.status} />
+                      <button className="rounded-md border border-line bg-surface px-2 py-1 text-xs hover:bg-hover">{m.label}</button>
+                    </form>
+                  ))}
+                  <Link
+                    href={`/?c=${projectId}&ask=${encodeURIComponent(`Change the requirement "${r.title}"${r.jiraIssueKey ? ` (${r.jiraIssueKey})` : ""}: `)}`}
+                    className="rounded-md px-2 py-1 text-xs text-accent hover:bg-hover"
+                  >
+                    Ask ISA to change it
+                  </Link>
+                </div>
+                <p className="text-[11px] text-muted">These buttons update ISA&apos;s record only. To change the Jira ticket, ask ISA: she drafts the change for you to approve.</p>
               </div>
             </details>
           </li>

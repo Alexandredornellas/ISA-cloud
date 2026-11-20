@@ -15,9 +15,11 @@ export type Settings = {
   askLinks: boolean;
   /** The owner's own fields, e.g. "Component" or "Due date". */
   askCustom: string[];
+  /** How the owner appears in meetings, email and Slack, so ISA knows which promises are theirs. */
+  ownerName: string;
 };
 
-const DEFAULTS: Settings = { askEpic: true, askSprint: false, askStoryPoints: false, askLinks: false, askCustom: [] };
+const DEFAULTS: Settings = { askEpic: true, askSprint: false, askStoryPoints: false, askLinks: false, askCustom: [], ownerName: "" };
 
 const flag = (v: string | undefined, fallback: boolean) => (v ? v === "on" : fallback);
 
@@ -37,6 +39,7 @@ export async function getSettings(): Promise<Settings> {
     askStoryPoints: flag(v.askStoryPoints, DEFAULTS.askStoryPoints),
     askLinks: flag(v.askLinks, DEFAULTS.askLinks),
     askCustom: custom,
+    ownerName: v.ownerName ?? "",
   };
 }
 
@@ -48,6 +51,7 @@ export async function saveSettings(s: Settings) {
     askStoryPoints: on(s.askStoryPoints),
     askLinks: on(s.askLinks),
     askCustom: JSON.stringify([...new Set(s.askCustom.map((c) => c.trim()).filter(Boolean))].slice(0, 10)),
+    ownerName: s.ownerName.trim().slice(0, 120),
   };
   await db
     .insert(schema.workerState)

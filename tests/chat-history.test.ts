@@ -82,10 +82,10 @@ describe("drafting settings", () => {
     const { eq } = await import("drizzle-orm");
     const { getSettings, saveSettings, settingsText } = await import("@/lib/settings");
     await db.delete(schema.workerState).where(eq(schema.workerState.key, "settings"));
-    expect(await getSettings()).toEqual({ askEpic: true, askSprint: false, askStoryPoints: false, askLinks: false, askCustom: [] });
+    expect(await getSettings()).toEqual({ askEpic: true, askSprint: false, askStoryPoints: false, askLinks: false, askCustom: [], ownerName: "" });
     expect(settingsText(await getSettings())).toContain("every story");
-    await saveSettings({ askEpic: false, askSprint: true, askStoryPoints: true, askLinks: false, askCustom: ["Component", " ", "Component", "Due date"] });
-    expect(await getSettings()).toEqual({ askEpic: false, askSprint: true, askStoryPoints: true, askLinks: false, askCustom: ["Component", "Due date"] });
+    await saveSettings({ askEpic: false, askSprint: true, askStoryPoints: true, askLinks: false, askCustom: ["Component", " ", "Component", "Due date"], ownerName: " Ana " });
+    expect(await getSettings()).toEqual({ askEpic: false, askSprint: true, askStoryPoints: true, askLinks: false, askCustom: ["Component", "Due date"], ownerName: "Ana" });
     const text = settingsText(await getSettings());
     expect(text).toContain("storyPoints");
     expect(text).toContain('"Component", "Due date"');

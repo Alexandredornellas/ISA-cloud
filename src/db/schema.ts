@@ -293,3 +293,27 @@ export const ticketChanges = pgTable(
     index("ticket_changes_key_idx").on(t.key),
   ],
 );
+
+// Things the owner promised to send or do, picked up from meetings, email and Slack or added by
+// hand. Internal to ISA: a reminder never contacts anyone.
+export const reminders = pgTable(
+  "reminders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+    eventId: uuid("event_id").references(() => events.id, { onDelete: "set null" }),
+    // What to send or do, e.g. "Send the MFA mockups".
+    text: text("text").notNull(),
+    // Who it is for, e.g. "Ana Costa".
+    person: text("person"),
+    due: timestamp("due", { withTimezone: true }),
+    // The deadline as said, e.g. "by Friday".
+    dueText: text("due_text"),
+    // The words it came from, so the owner can trust it.
+    quote: text("quote"),
+    status: text("status").notNull().default("open"), // open | done | dismissed
+    doneAt: timestamp("done_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [index("reminders_status_idx").on(t.status)],
+);

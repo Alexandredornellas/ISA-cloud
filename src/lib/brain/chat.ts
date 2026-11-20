@@ -1,3 +1,4 @@
+import { TIME_ZONE, dayKey } from "@/lib/reminders";
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodTool } from "@anthropic-ai/sdk/helpers/beta/zod";
 import type { BetaMessageParam } from "@anthropic-ai/sdk/resources/beta/messages/messages";
@@ -115,6 +116,7 @@ async function runChat(text: string, messages: BetaMessageParam[], projectId: st
     thread: false,
     system: [
       { type: "text", text: CHAT_SYSTEM, cache_control: { type: "ephemeral" } },
+      { type: "text" as const, text: `Today is ${new Date().toLocaleDateString("en-US", { timeZone: TIME_ZONE, weekday: "long", year: "numeric", month: "long", day: "numeric" })} (${dayKey(new Date())}) in the owner's time zone.` },
       ...(projectId ? [{ type: "text" as const, text: await projectFocus(projectId) }] : []),
       ...(proposalId ? [{ type: "text" as const, text: await suggestionFocus(proposalId) }] : []),
     ],

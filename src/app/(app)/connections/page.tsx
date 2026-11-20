@@ -1,10 +1,6 @@
-import { desc } from "drizzle-orm";
-import { db, schema } from "@/db";
 import { JiraClient, jiraConfigFromEnv } from "@/lib/jira";
 import { liveSlack } from "@/lib/runtime";
-import { SendBotForm } from "@/components/SendBotForm";
 import { GoogleClient, googleConfigFromEnv } from "@/lib/google";
-import { setAutoJoin } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -61,14 +57,6 @@ function envStatus(
   return { name, ok, detail: ok ? okDetail : missingDetail };
 }
 
-const BOT_LABEL = {
-  scheduled: "Scheduled",
-  in_call: "In the call",
-  processing: "Getting transcript",
-  done: "Transcript in inbox",
-  failed: "Failed",
-} as const;
-
 export default async function ConnectionsPage() {
   const statuses: Status[] = [
     envStatus(
@@ -95,12 +83,6 @@ export default async function ConnectionsPage() {
     }
   })();
   const google = await GoogleClient.connection();
-  const autoJoin = google?.state.autoJoin === "on";
-  const bots = await db
-    .select()
-    .from(schema.meetingBots)
-    .orderBy(desc(schema.meetingBots.createdAt))
-    .limit(10);
 
   return (
     <div className="mx-auto max-w-3xl space-y-8 px-4 py-7 sm:px-8">
@@ -160,56 +142,10 @@ export default async function ConnectionsPage() {
         </div>
       </section>
 
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold">Meetings</h2>
-        {google ? (
-          <form
-            action={setAutoJoin}
-            className="flex items-center justify-between gap-3 rounded-xl border border-line bg-surface p-4"
-          >
-            <p className="text-sm">
-              <span className="font-medium">Join my calendar meetings.</span>{" "}
-              <span className="text-muted">
-                ISA Notetaker joins every meeting with a Zoom, Meet or Teams
-                link that you have not declined.
-              </span>
-            </p>
-            <input type="hidden" name="on" value={autoJoin ? "off" : "on"} />
-            <button
-              className={`shrink-0 rounded-lg px-4 py-2 text-sm font-medium ${autoJoin ? "bg-accent text-white" : "border border-line"}`}
-            >
-              {autoJoin ? "On" : "Off"}
-            </button>
-          </form>
-        ) : null}
-        <SendBotForm />
-        {bots.length ? (
-          <ul className="divide-y divide-line rounded-xl border border-line bg-surface">
-            {bots.map((b) => (
-              <li
-                key={b.id}
-                className="flex items-start justify-between gap-4 p-4 text-sm"
-              >
-                <div>
-                  <p className="font-medium">{b.title}</p>
-                  <p className="mt-0.5 text-muted">
-                    {(b.joinAt ?? b.createdAt).toLocaleString("en-US", {
-                      dateStyle: "medium",
-                      timeStyle: "short",
-                    })}
-                    {b.error ? ` · ${b.error}` : ""}
-                  </p>
-                </div>
-                <span
-                  className={`shrink-0 font-medium ${b.status === "failed" ? "text-danger" : b.status === "done" ? "text-ok" : "text-muted"}`}
-                >
-                  {BOT_LABEL[b.status]}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </section>
+      <a href="/meetings" className="block rounded-xl border border-line bg-surface p-4 text-sm hover:border-accent">
+        <span className="font-medium">Meetings</span>
+        <span className="text-muted"> · Send ISA Notetaker to a call, and choose whether it joins your calendar meetings by itself →</span>
+      </a>
     </div>
   );
 }

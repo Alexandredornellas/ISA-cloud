@@ -9,6 +9,13 @@ import { formatsText, ticketFormats } from "@/lib/ticket-formats";
 import { openSprintNames, relatedTicketsBlock } from "@/lib/jira-research";
 import { getSettings, settingsText } from "@/lib/settings";
 import { keepToProject, owners } from "@/lib/ownership";
+import { saveCommitments } from "@/lib/reminders";
+
+/** Who the owner is, so ISA can tell which promises in an item are theirs. */
+async function ownerLine(): Promise<string> {
+  const { ownerName } = await getSettings();
+  return ownerName ? `The owner is ${ownerName}.\n\n` : "";
+}
 
 /** Context for drafting: the owner's ticket formats, then the project. */
 async function withFormats(context: string, terms: string[] = [], projectId: string | null = null): Promise<string> {
@@ -45,12 +52,14 @@ export async function processEvent(eventId: string, llm: StructuredLLM): Promise
     const raw = await llm({
       system: SORT_SYSTEM,
       context,
-      input: `New item:\n${eventText(event)}`,
+      input: `${await ownerLine()}New item:\n${eventText(event)}`,
       schema: SortResultSchema,
       effort: "medium",
     });
     const sort = cleanSort(raw, projectIds);
     const terms = sort.searchTerms ?? [];
+    // Like a secretary: what the item asks of the owner becomes a reminder (internal only).
+    await saveCommitments(event.id, sort.commitments ?? [], projectIds);
 
     const proposalIds: string[] = [];
     let unsure = false;

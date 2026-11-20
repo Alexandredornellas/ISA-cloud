@@ -39,6 +39,7 @@ export async function saveDraftingSettings(form: FormData) {
     askStoryPoints: on("askStoryPoints"),
     askLinks: on("askLinks"),
     askCustom: [...form.getAll("askCustom").map(String), String(form.get("newCustom") ?? "")],
+    ownerName: String(form.get("ownerName") ?? ""),
   });
   revalidatePath("/settings");
 }

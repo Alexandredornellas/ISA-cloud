@@ -8,6 +8,8 @@ import { Workspace, type PanelTab } from "@/components/Workspace";
 import { ActivityFeed } from "@/components/ActivityFeed";
 import { PeopleAndRules, RequirementList } from "@/components/ProjectPanels";
 import { clearChatMessages } from "./chat/actions";
+import { openReminders } from "@/lib/reminders";
+import { ReminderList } from "@/components/ReminderList";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +26,13 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
   const current = (typeof c === "string" && all.find((ch) => ch.id === c)) || all[0];
   const projectId = current.id;
 
-  const [notes, chat, log, feed] = await Promise.all([notifications(projectId), chatTranscript(projectId), decisions(projectId), activity(projectId)]);
+  const [notes, chat, log, feed, reminders] = await Promise.all([
+    notifications(projectId),
+    chatTranscript(projectId),
+    decisions(projectId),
+    activity(projectId),
+    projectId ? openReminders(projectId) : Promise.resolve([]),
+  ]);
   const messages = [
     ...chat.map((m) => ({ id: m.id, role: m.role, text: m.text, used: m.used, at: m.at })),
     ...log.map((l) => ({ id: `log-${l.id}`, role: "log" as const, text: `${l.at.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} · ${l.text}`, at: l.at })),
@@ -46,8 +54,9 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
     { id: "activity", label: "Activity", icon: "clock", content: <ActivityFeed entries={feed} showProject={!projectId} /> },
     ...(project
       ? [
-          { id: "requirements", label: "Requirements", icon: "list" as const, count: open, content: <RequirementList requirements={requirements} /> },
-          { id: "people", label: "People & rules", icon: "users" as const, content: <PeopleAndRules projectId={project.id} people={project.people} rules={rules} /> },
+          { id: "requirements", label: "Requirements", icon: "list" as const, count: open, content: <RequirementList requirements={requirements} projectId={project.id} /> },
+          { id: "reminders", label: "Reminders", icon: "bell" as const, count: reminders.length, content: <ReminderList reminders={reminders} showProject={false} compact /> },
+          { id: "people", label: "People", icon: "users" as const, content: <PeopleAndRules projectId={project.id} people={project.people} rules={rules} /> },
         ]
       : []),
   ];

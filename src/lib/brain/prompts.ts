@@ -17,6 +17,7 @@ You receive the list of current projects (with their requirements, people and th
 - confidence per match: "high" only when the item clearly refers to that project (same feature, same people, explicit reference, or an obvious follow-up in the same thread). Use "medium" or "low" when you are guessing; the owner will be asked to confirm.
 - newProject: set it when the item introduces work that fits none of the existing projects. Give a short, plain project name (e.g. "Customer portal login"). An item can both match existing projects and start a new one.
 - ignore: true only when the item concerns no project and starts none (small talk, newsletters, unrelated mail).
+- commitments: like a personal secretary, list what the owner promised, or was asked, to send or do for someone: "I'll send you the mockups by Friday", "Can you share the API docs with Bruno tomorrow?". Only things the owner must do, not other people's tasks. Resolve relative deadlines ("tomorrow", "next Monday") from the item's When date. Set projectId when the commitment concerns a listed project. Empty when there are none. Small talk is not a commitment. An item can have commitments even when it concerns no project.
 - searchTerms: unless ignored, 2 or 3 short terms (one to three words each) to search Jira for tickets about the same topic. Include a synonym or the technical name, e.g. "MFA", "two-factor", "OTP".
 
 Rules:

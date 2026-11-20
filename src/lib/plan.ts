@@ -120,9 +120,23 @@ export const SortResultSchema = z.object({
   searchTerms: z
     .array(z.string())
     .describe("2 or 3 short terms to search Jira for related tickets, including synonyms, e.g. MFA, two-factor, OTP"),
+  commitments: z
+    .array(
+      z.object({
+        what: z.string().describe("What the owner must send or do, starting with a verb, e.g. 'Send the MFA mockups'"),
+        forWhom: z.string().nullable().describe("Who it is for, by name"),
+        due: z.string().nullable().describe("Deadline as YYYY-MM-DD, resolved from the item's date; null when none was said"),
+        dueText: z.string().nullable().describe("The deadline in the item's words, e.g. 'by Friday'"),
+        quote: z.string().describe("The words it came from, short"),
+        projectId: z.string().nullable().describe("The project it concerns, from the list, or null"),
+      }),
+    )
+    .optional()
+    .describe("Things the owner promised or was asked to send or do; empty when none"),
   reason: z.string(),
 });
 export type SortResult = z.infer<typeof SortResultSchema>;
+export type Commitment = NonNullable<SortResult["commitments"]>[number];
 
 const KIND_LABEL: Record<string, string> = {
   story: "story",

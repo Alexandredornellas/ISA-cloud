@@ -36,7 +36,7 @@ export async function sendBotToMeeting(_prev: SendBotState, form: FormData): Pro
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Could not send the bot." };
   }
-  revalidatePath("/connections");
+  revalidatePath("/", "layout");
   return { ok: true, error: null };
 }
 
@@ -50,5 +50,5 @@ export async function setAutoJoin(form: FormData) {
     .update(schema.connections)
     .set({ state: { ...conn.state, autoJoin: on ? "on" : "off" }, updatedAt: new Date() })
     .where(eq(schema.connections.id, conn.id));
-  revalidatePath("/connections");
+  revalidatePath("/", "layout");
 }

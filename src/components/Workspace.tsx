@@ -17,7 +17,7 @@ export function Workspace({ header, main, tabs }: { header: React.ReactNode; mai
 
   const panel = (
     <div className="flex h-full flex-col">
-      <div role="tablist" aria-label="Project details" className="flex gap-1 border-b border-line px-3 pt-3">
+      <div role="tablist" aria-label="Project details" className="flex gap-0.5 overflow-x-auto border-b border-line px-2 pt-3">
         {tabs.map((t) => (
           <button
             key={t.id}
@@ -25,7 +25,7 @@ export function Workspace({ header, main, tabs }: { header: React.ReactNode; mai
             type="button"
             aria-selected={t.id === active?.id}
             onClick={() => setTab(t.id)}
-            className={`-mb-px flex items-center gap-1.5 border-b-2 px-2.5 pb-2.5 pt-1 text-sm ${t.id === active?.id ? "border-accent font-medium text-ink" : "border-transparent text-muted hover:text-ink"}`}
+            className={`-mb-px flex flex-none items-center gap-1 whitespace-nowrap border-b-2 px-2 pb-2.5 pt-1 text-[13px] ${t.id === active?.id ? "border-accent font-medium text-ink" : "border-transparent text-muted hover:text-ink"}`}
           >
             {t.label}
             {t.count ? <span className="rounded-full bg-bg px-1.5 text-xs text-muted">{t.count}</span> : null}

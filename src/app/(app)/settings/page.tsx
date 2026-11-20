@@ -25,7 +25,12 @@ export default async function SettingsPage() {
         <p className="mt-1 text-sm text-muted">
           For each box you check, ISA suggests a value on every ticket she drafts, and the card asks you to confirm or change it before anything goes to Jira.
         </p>
-        <div className="mt-4 space-y-3">
+        <label className="mt-4 block max-w-sm">
+          <span className="block text-sm font-medium">Your name</span>
+          <input name="ownerName" defaultValue={settings.ownerName} placeholder="e.g. Alexandre Dornellas" className={`${input} mt-1`} />
+          <span className="mt-1 block text-xs text-muted">As it appears in meetings, email and Slack. ISA uses it to tell which promises are yours, for your reminders.</span>
+        </label>
+        <div className="mt-5 space-y-3">
           {ASKS.map((a) => (
             <label key={a.name} className="flex cursor-pointer items-start gap-3">
               <input type="checkbox" name={a.name} defaultChecked={settings[a.name]} className="mt-1 h-4 w-4 accent-[var(--color-accent)]" />

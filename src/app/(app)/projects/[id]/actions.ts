@@ -28,3 +28,19 @@ export async function redraftItem(form: FormData) {
   const { redirect } = await import("next/navigation");
   redirect(`/?c=${projectId}`);
 }
+
+/** The owner sets a requirement's status by hand. This changes ISA's record only, not Jira. */
+export async function setRequirementStatus(form: FormData) {
+  const id = String(form.get("id"));
+  const status = String(form.get("status"));
+  if (!["proposed", "approved", "done", "dropped"].includes(status)) return;
+  await db
+    .update(schema.requirements)
+    .set({
+      status: status as "proposed" | "approved" | "done" | "dropped",
+      approvedBy: status === "approved" ? "you" : undefined,
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.requirements.id, id));
+  revalidatePath("/", "layout");
+}
