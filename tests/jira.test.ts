@@ -27,18 +27,37 @@ describe("toAdf", () => {
 
 describe("JiraClient", () => {
   it("creates an issue in the configured project", async () => {
-    const f = fakeFetch([{ status: 201, body: { key: "ISA-7" } }]);
+    const f = fakeFetch([
+      { status: 200, body: { issueTypes: [{ id: "10001", name: "Story" }] } },
+      { status: 201, body: { key: "ISA-7" } },
+    ]);
     const issue = await new JiraClient(cfg, f.impl).createIssue({
       summary: "Login page",
       description: "Text",
       issueType: "Story",
     });
     expect(issue).toEqual({ key: "ISA-7", url: "https://acme.atlassian.net/browse/ISA-7" });
-    expect(f.calls[0].url).toBe("https://acme.atlassian.net/rest/api/3/issue");
-    const body = JSON.parse(String(f.calls[0].init.body));
+    expect(f.calls[1].url).toBe("https://acme.atlassian.net/rest/api/3/issue");
+    const body = JSON.parse(String(f.calls[1].init.body));
     expect(body.fields.project.key).toBe("ISA");
-    expect(body.fields.issuetype.name).toBe("Story");
+    expect(body.fields.issuetype).toEqual({ id: "10001" });
     expect(String((f.calls[0].init.headers as Record<string, string>).Authorization)).toMatch(/^Basic /);
+  });
+
+  it("finds issue types on a site in another language", async () => {
+    const types = [
+      { id: "1", name: "Épico", untranslatedName: "Epic" },
+      { id: "2", name: "História" },
+      { id: "3", name: "Tarefa" },
+      { id: "4", name: "Subtarefa", subtask: true },
+    ];
+    const f = fakeFetch([{ status: 200, body: { issueTypes: types } }]);
+    const jira = new JiraClient(cfg, f.impl);
+    expect(await jira.issueTypeId("ISA", "Epic")).toBe("1");
+    expect(await jira.issueTypeId("ISA", "Story")).toBe("2");
+    expect(await jira.issueTypeId("ISA", "task")).toBe("3");
+    await expect(jira.issueTypeId("ISA", "Spike")).rejects.toThrow('has no issue type "Spike". Its types are: Épico, História, Tarefa');
+    expect(f.calls).toHaveLength(1); // the project's types are fetched once
   });
 
   it("skips an update with nothing to change", async () => {

@@ -66,6 +66,16 @@ function paragraph(text: string): AdfNode {
   return { type: "paragraph", content: inline };
 }
 
+type ProjectIssueType = { id: string; name: string; untranslatedName?: string; subtask?: boolean };
+
+// Common translations of Jira's default issue types, for sites not in English.
+const TYPE_ALIASES: Record<string, string[]> = {
+  story: ["historia", "user story"],
+  task: ["tarefa", "tarea", "tache"],
+  bug: ["erro", "defeito", "error", "bogue"],
+  epic: ["epico", "epica", "epique"],
+};
+
 export class JiraClient {
   constructor(
     private readonly cfg: JiraConfig,
@@ -107,11 +117,13 @@ export class JiraClient {
     labels?: string[];
     projectKey?: string;
   }): Promise<JiraIssue> {
+    const projectKey = input.projectKey ?? this.cfg.projectKey;
+    const issueTypeId = await this.issueTypeId(projectKey, input.issueType);
     const out = await this.request<{ key: string }>("POST", "/issue", {
       fields: {
-        project: { key: input.projectKey ?? this.cfg.projectKey },
+        project: { key: projectKey },
         summary: input.summary.slice(0, 254),
-        issuetype: { name: input.issueType },
+        issuetype: { id: issueTypeId },
         description: toAdf(input.description),
         ...(input.labels?.length ? { labels: input.labels.map((l) => l.trim().replace(/\s+/g, "-")) } : {}),
       },
@@ -144,6 +156,33 @@ export class JiraClient {
   }
 
   // Cheap call that proves the credentials and project key work.
+  private issueTypes = new Map<string, ProjectIssueType[]>();
+
+  /**
+   * The id of a project's issue type, matched by its English name or by the name shown in the
+   * site's language (a Portuguese site calls Story "História" and Task "Tarefa").
+   */
+  async issueTypeId(projectKey: string, wanted: string): Promise<string> {
+    let types = this.issueTypes.get(projectKey);
+    if (!types) {
+      const p = await this.request<{ issueTypes?: ProjectIssueType[] }>("GET", `/project/${encodeURIComponent(projectKey)}`);
+      types = (p.issueTypes ?? []).filter((t) => !t.subtask);
+      this.issueTypes.set(projectKey, types);
+    }
+    const norm = (v?: string) => (v ?? "").normalize("NFD").replace(/\p{Diacritic}/gu, "").trim().toLowerCase();
+    const target = norm(wanted);
+    const aliases = [target, ...(TYPE_ALIASES[target] ?? [])];
+    const match =
+      types.find((t) => norm(t.untranslatedName) === target || norm(t.name) === target) ??
+      types.find((t) => aliases.includes(norm(t.name)) || aliases.includes(norm(t.untranslatedName)));
+    if (!match) {
+      throw new Error(
+        `Jira project ${projectKey} has no issue type "${wanted}". Its types are: ${types.map((t) => t.name).join(", ")}. Change it on the Ticket formats page.`,
+      );
+    }
+    return match.id;
+  }
+
   async checkProject(): Promise<{ key: string; name: string }> {
     const p = await this.request<{ key: string; name: string }>(
       "GET",
