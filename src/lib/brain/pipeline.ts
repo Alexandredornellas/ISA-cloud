@@ -176,7 +176,6 @@ async function proposeNewProject(event: EventRow, name: string, llm: StructuredL
 
 /** "Is this about project X?" Approving it files the event there and drafts the update. */
 async function askWhichProject(event: EventRow, projectId: string, note: string): Promise<string> {
-  const project = await db.query.projects.findFirst({ where: eq(schema.projects.id, projectId) });
   const plan: Plan = {
     summary: note,
     projectName: null,
@@ -190,7 +189,7 @@ async function askWhichProject(event: EventRow, projectId: string, note: string)
     .values({
       kind: "clarify",
       projectId,
-      title: `Is "${event.title}" about ${project?.name ?? "this project"}?`,
+      title: `Where does "${event.title}" belong?`,
       plan,
       eventIds: [event.id],
     })
@@ -322,4 +321,24 @@ export async function redraftProject(projectId: string, llm: StructuredLLM, jira
     limit: 5,
   });
   return proposeUpdate(projectId, events.reverse(), llm);
+}
+
+/**
+ * The owner answered "where does this go?": file the item under the chosen project (or a new
+ * one) and draft its tickets there. Returns the new suggestion's id, if any.
+ */
+export async function placeClarification(
+  proposalId: string,
+  target: { projectId: string } | { newProjectName: string },
+  llm: StructuredLLM,
+): Promise<string | null> {
+  const proposal = await db.query.proposals.findFirst({ where: eq(schema.proposals.id, proposalId) });
+  if (!proposal || proposal.kind !== "clarify" || proposal.status !== "pending") throw new Error("Nothing to place");
+  await db
+    .update(schema.proposals)
+    .set({ status: "executed", decidedAt: new Date(), updatedAt: new Date() })
+    .where(eq(schema.proposals.id, proposalId));
+  let last: string | null = null;
+  for (const eventId of proposal.eventIds) last = (await refileEvent(eventId, target, llm)) ?? last;
+  return last;
 }

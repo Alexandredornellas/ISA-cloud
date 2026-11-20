@@ -157,7 +157,7 @@ describe("processEvent", () => {
     expect(out.kind).toBe("unsure");
     const [question] = await db.select().from(schema.proposals);
     expect(question.kind).toBe("clarify");
-    expect(question.title).toBe('Is "Maybe" about Login?');
+    expect(question.title).toBe('Where does "Maybe" belong?');
 
     const updateId = await confirmClarification(question.id, llm);
 

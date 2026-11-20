@@ -1,11 +1,11 @@
 "use client";
 
-import { useOptimistic, useRef, useState, useTransition } from "react";
+import { useEffect, useOptimistic, useRef, useState, useTransition } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { sendChatMessage } from "@/app/(app)/chat/actions";
 
-type Message = { id: string; role: "user" | "assistant"; text: string; used?: string[] };
+export type Message = { id: string; role: "user" | "assistant" | "log"; text: string; used?: string[] };
 
 const EXAMPLES = [
   "What do we know about the login project?",
@@ -51,11 +51,18 @@ export function ChatPanel({
   initial = "",
   projectId = null,
   examples = EXAMPLES,
+  replyTo = null,
+  onClearReply,
+  placeholder = "Ask ISA anything (Enter to send, Shift+Enter for a new line)",
 }: {
   messages: Message[];
   initial?: string;
   projectId?: string | null;
   examples?: string[];
+  /** The suggestion card the owner is changing with ISA, if any. */
+  replyTo?: { id: string; title: string } | null;
+  onClearReply?: () => void;
+  placeholder?: string;
 }) {
   const [optimistic, addOptimistic] = useOptimistic(messages, (state, text: string) => [
     ...state,
@@ -64,6 +71,10 @@ export function ChatPanel({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
+  const boxRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (replyTo) boxRef.current?.focus();
+  }, [replyTo]);
 
   function send(text: string) {
     if (!text.trim()) return;
@@ -74,6 +85,8 @@ export function ChatPanel({
       const form = new FormData();
       form.set("text", text);
       if (projectId) form.set("projectId", projectId);
+      if (replyTo) form.set("proposalId", replyTo.id);
+      onClearReply?.();
       const failed = await sendChatMessage(form).catch(() => "ISA could not answer.");
       if (failed) setError(failed);
     });
@@ -92,8 +105,10 @@ export function ChatPanel({
       ) : (
         <ul className="space-y-3">
           {optimistic.map((m) => (
-            <li key={m.id} className={m.role === "user" ? "flex justify-end" : ""}>
-              {m.role === "user" ? (
+            <li key={m.id} className={m.role === "user" ? "flex justify-end" : m.role === "log" ? "text-center" : ""}>
+              {m.role === "log" ? (
+                <p className="text-xs text-muted">{m.text}</p>
+              ) : m.role === "user" ? (
                 <p className="max-w-[85%] whitespace-pre-wrap rounded-xl bg-accent px-4 py-2.5 text-sm text-white">
                   <Linked text={m.text} />
                 </p>
@@ -111,17 +126,26 @@ export function ChatPanel({
         </ul>
       )}
       {error ? <p className="text-sm text-danger">{error}</p> : null}
+      {replyTo ? (
+        <div className="flex items-center justify-between gap-2 rounded-lg bg-accent-soft px-3 py-2 text-sm text-accent">
+          <span>Changing: {replyTo.title}</span>
+          <button type="button" onClick={onClearReply} aria-label="Stop changing this suggestion" className="px-2 text-base">
+            ×
+          </button>
+        </div>
+      ) : null}
       <form
         ref={formRef}
         action={(form) => send(String(form.get("text") ?? ""))}
         className="flex gap-2 rounded-xl border border-line bg-surface p-2"
       >
         <textarea
+          ref={boxRef}
           name="text"
           rows={2}
           defaultValue={initial}
           autoFocus={!!initial}
-          placeholder="Ask ISA anything (Enter to send, Shift+Enter for a new line)"
+          placeholder={replyTo ? 'Tell ISA what to change, e.g. "Keep SCRUM-7 open, just comment on it"' : placeholder}
           className="flex-1 resize-none bg-transparent px-2 py-1 text-sm outline-none"
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {

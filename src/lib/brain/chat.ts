@@ -21,14 +21,14 @@ How to work:
 - Write in Markdown. Fit the length to the question: a short answer for a simple question, structure (short headings, lists, tables) for a longer one.`;
 
 /** Send the owner's message to ISA, run any tools it uses, and store the conversation. Returns ISA's reply. */
-export async function sendChat(text: string, projectId: string | null = null): Promise<string> {
+export async function sendChat(text: string, projectId: string | null = null, proposalId: string | null = null): Promise<string> {
   const history = await db.query.chatMessages.findMany({ where: inChat(projectId), orderBy: asc(schema.chatMessages.createdAt) });
   try {
-    return await runChat(text, replayable(history), projectId);
+    return await runChat(text, replayable(history), projectId, proposalId);
   } catch (err) {
     // A stored conversation the API no longer accepts must not lock the chat: retry with its text only.
     console.error("chat failed, retrying with text only", { error: errorKind(err) });
-    return await runChat(text, textOnly(history), projectId);
+    return await runChat(text, textOnly(history), projectId, proposalId);
   }
 }
 
@@ -86,7 +86,7 @@ export function textOnly(history: StoredMessage[]): BetaMessageParam[] {
   return turns;
 }
 
-async function runChat(text: string, messages: BetaMessageParam[], projectId: string | null): Promise<string> {
+async function runChat(text: string, messages: BetaMessageParam[], projectId: string | null, proposalId: string | null): Promise<string> {
   const start = messages.length;
   messages.push({ role: "user", content: [{ type: "text", text }] });
 
@@ -116,6 +116,7 @@ async function runChat(text: string, messages: BetaMessageParam[], projectId: st
     system: [
       { type: "text", text: CHAT_SYSTEM, cache_control: { type: "ephemeral" } },
       ...(projectId ? [{ type: "text" as const, text: await projectFocus(projectId) }] : []),
+      ...(proposalId ? [{ type: "text" as const, text: await suggestionFocus(proposalId) }] : []),
     ],
     messages,
     tools,
@@ -168,9 +169,9 @@ const TOOL_LABEL: Record<string, string> = {
  * The conversation as the owner sees it: the text, plus what ISA looked at to answer
  * (shown under each answer, so the owner can tell where it comes from).
  */
-export async function chatTranscript(projectId: string | null = null): Promise<{ id: string; role: "user" | "assistant"; text: string; used: string[] }[]> {
+export async function chatTranscript(projectId: string | null = null): Promise<{ id: string; role: "user" | "assistant"; text: string; used: string[]; at: Date }[]> {
   const rows = await db.query.chatMessages.findMany({ where: inChat(projectId), orderBy: asc(schema.chatMessages.createdAt) });
-  const out: { id: string; role: "user" | "assistant"; text: string; used: string[] }[] = [];
+  const out: { id: string; role: "user" | "assistant"; text: string; used: string[]; at: Date }[] = [];
   let used: string[] = [];
   for (const m of rows) {
     const blocks = m.content as { type: string; text?: string; name?: string }[];
@@ -188,7 +189,7 @@ export async function chatTranscript(projectId: string | null = null): Promise<{
       prev.text += `\n\n${text}`;
       prev.used = [...new Set([...prev.used, ...used])];
     } else {
-      out.push({ id: m.id, role, text, used: role === "assistant" ? [...new Set(used)] : [] });
+      out.push({ id: m.id, role, text, used: role === "assistant" ? [...new Set(used)] : [], at: m.createdAt });
     }
     if (role === "assistant") used = [];
   }
@@ -204,4 +205,15 @@ async function projectFocus(projectId: string): Promise<string> {
   const project = await db.query.projects.findFirst({ where: eq(schema.projects.id, projectId) });
   if (!project) return "";
   return `This conversation is about the project "${project.name}" (id ${project.id}). Unless the owner says otherwise, every question refers to it. Its current state in ISA (check Jira with your tools before relying on ticket details):\n${await projectBlock(projectId)}`;
+}
+
+/** The suggestion card the owner is answering with "Change with ISA". */
+async function suggestionFocus(proposalId: string): Promise<string> {
+  const p = await db.query.proposals.findFirst({ where: eq(schema.proposals.id, proposalId) });
+  if (!p) return "";
+  const how =
+    p.kind === "clarify"
+      ? `This is a "where does this go?" question about item(s) ${p.eventIds.join(", ")}. File them where the owner says with move_item.`
+      : "Change it the way the owner asks with revise_proposal (keep everything they did not mention), then say in a sentence or two what changed. The updated suggestion stays in their channel for them to approve.";
+  return `The owner is answering your suggestion ${p.id} "${p.title}" (${p.status}). ${how}\nThe suggestion now:\n${JSON.stringify(p.plan, null, 2)}`;
 }

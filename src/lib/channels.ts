@@ -1,0 +1,129 @@
+// ISA's home screen: one channel per project plus General. Suggestions that wait on the owner
+// show as "Needs you" cards in their channel until the owner acts on them.
+import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
+import { db, schema } from "@/db";
+import { missingTypeQuestions, type MissingTypeQuestion } from "@/lib/queries";
+import type { Plan } from "@/lib/plan";
+
+export type Channel = { id: string | null; name: string; count: number; done: boolean };
+
+type ProposalRow = typeof schema.proposals.$inferSelect;
+
+/** Waiting on the owner: drafts to review and approved suggestions that failed. */
+const WAITING = ["pending", "failed"] as const;
+
+/** Which channel a suggestion belongs to: a "where does this go?" question and an unfiled draft go to General. */
+export function channelOf(p: Pick<ProposalRow, "kind" | "projectId">): string | null {
+  return p.kind === "clarify" ? null : p.projectId;
+}
+
+export async function channels(): Promise<Channel[]> {
+  const [projects, reqs, waiting] = await Promise.all([
+    db.select({ id: schema.projects.id, name: schema.projects.name }).from(schema.projects).orderBy(desc(schema.projects.updatedAt)),
+    db.select({ projectId: schema.requirements.projectId, status: schema.requirements.status }).from(schema.requirements),
+    db.select({ kind: schema.proposals.kind, projectId: schema.proposals.projectId }).from(schema.proposals).where(inArray(schema.proposals.status, [...WAITING])),
+  ]);
+  const count = (id: string | null) => waiting.filter((p) => channelOf(p) === id).length;
+  return [
+    { id: null, name: "General", count: count(null), done: false },
+    ...projects.map((p) => {
+      const mine = reqs.filter((r) => r.projectId === p.id);
+      const open = mine.some((r) => r.status !== "done" && r.status !== "dropped");
+      const n = count(p.id);
+      return { id: p.id, name: p.name, count: n, done: mine.length > 0 && !open && n === 0 };
+    }),
+  ];
+}
+
+export type Notification = {
+  id: string;
+  kind: ProposalRow["kind"];
+  status: ProposalRow["status"];
+  title: string;
+  plan: Plan;
+  error: string | null;
+  createdAt: Date;
+  sources: { id: string; source: string; title: string; url: string | null; author: string | null; at: Date }[];
+  /** For a suggestion that creates an epic: the project's existing epics to choose from instead. */
+  existingEpics: { key: string; label: string }[];
+  /** For a "where does this go?" question: where it could go, ISA's guess first. */
+  places: { projectId: string; name: string; best: boolean }[];
+  question: MissingTypeQuestion | null;
+};
+
+export async function notifications(channelId: string | null): Promise<Notification[]> {
+  const rows = await db.query.proposals.findMany({
+    where: and(
+      inArray(schema.proposals.status, [...WAITING]),
+      channelId
+        ? and(eq(schema.proposals.projectId, channelId), inArray(schema.proposals.kind, ["update", "new_project"]))
+        : or(eq(schema.proposals.kind, "clarify"), isNull(schema.proposals.projectId)),
+    ),
+    orderBy: desc(schema.proposals.createdAt),
+  });
+  if (!rows.length) return [];
+
+  const eventIds = [...new Set(rows.flatMap((r) => r.eventIds))];
+  const events = eventIds.length
+    ? await db
+        .select({ id: schema.events.id, source: schema.events.source, title: schema.events.title, url: schema.events.url, author: schema.events.author, at: schema.events.occurredAt })
+        .from(schema.events)
+        .where(inArray(schema.events.id, eventIds))
+    : [];
+  const byId = new Map(events.map((e) => [e.id, e]));
+  const questions = await missingTypeQuestions(rows);
+  const projects = rows.some((r) => r.kind === "clarify")
+    ? await db.select({ id: schema.projects.id, name: schema.projects.name }).from(schema.projects).orderBy(desc(schema.projects.updatedAt))
+    : [];
+  const epics = channelId
+    ? await db
+        .select({ key: schema.jiraTickets.key, summary: schema.jiraTickets.summary, issueType: schema.jiraTickets.issueType })
+        .from(schema.jiraTickets)
+        .where(and(eq(schema.jiraTickets.projectId, channelId), isNull(schema.jiraTickets.deletedAt)))
+    : [];
+  const existingEpics = epics
+    .filter((t) => /^(epic|[eé]pico|[eé]pica|epique)$/i.test(t.issueType ?? ""))
+    .map((t) => ({ key: t.key, label: `${t.key} ${t.summary}` }));
+
+  return rows.map((r) => ({
+    id: r.id,
+    kind: r.kind,
+    status: r.status,
+    title: r.title,
+    plan: r.plan,
+    error: r.error,
+    createdAt: r.createdAt,
+    sources: r.eventIds.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : [])),
+    existingEpics: r.plan.actions.some((a) => a.type === "jira_create" && a.kind === "epic") ? existingEpics : [],
+    places:
+      r.kind === "clarify"
+        ? [
+            ...projects.filter((p) => p.id === r.projectId).map((p) => ({ projectId: p.id, name: p.name, best: true })),
+            ...projects.filter((p) => p.id !== r.projectId).map((p) => ({ projectId: p.id, name: p.name, best: false })),
+          ]
+        : [],
+    question: questions.find((q) => q.proposalId === r.id) ?? null,
+  }));
+}
+
+/** One-line records of what the owner decided in a channel, for its history. */
+export async function decisions(channelId: string | null): Promise<{ id: string; at: Date; text: string }[]> {
+  const rows = await db.query.proposals.findMany({
+    where: and(
+      inArray(schema.proposals.status, ["approved", "executed", "dismissed"]),
+      channelId ? and(eq(schema.proposals.projectId, channelId), inArray(schema.proposals.kind, ["update", "new_project"])) : eq(schema.proposals.kind, "clarify"),
+    ),
+    orderBy: desc(schema.proposals.decidedAt),
+    limit: 30,
+  });
+  return rows.map((p) => {
+    const steps = p.plan.actions.length;
+    const what =
+      p.status === "dismissed"
+        ? `You marked "${p.title}" as not needed.`
+        : p.kind === "clarify"
+          ? `You filed "${p.title.replace(/^Where does |^Is /, "").replace(/ belong\?$| about .*\?$/, "")}". ISA drafted its tickets in that project.`
+          : `You approved "${p.title}"${steps ? ` (${steps} step${steps === 1 ? "" : "s"})` : ""}.${p.status === "executed" ? " Done." : " ISA is doing it."}`;
+    return { id: p.id, at: p.decidedAt ?? p.updatedAt, text: what };
+  });
+}

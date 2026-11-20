@@ -6,7 +6,6 @@ import { describeAction } from "@/lib/plan";
 import { addRule, redraftItem, removeRule } from "./actions";
 import { SubmitButton } from "@/components/SubmitButton";
 import { describeChange } from "@/lib/jira-track";
-import { ProposalCard } from "@/components/ProposalCard";
 import { withSources } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -111,24 +110,21 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
       <section>
         <h1 className="text-2xl font-semibold">{project.name}</h1>
         <Link
-          href={`/chat?project=${project.id}`}
+          href={`/?c=${project.id}`}
           className="mt-2 inline-block rounded-lg border border-line px-3 py-1.5 text-sm font-medium"
         >
-          Ask ISA about this project
+          Open the project channel
         </Link>
         {project.summary ? <p className="mt-2 text-sm">{project.summary}</p> : null}
       </section>
 
       {pendingReview.length ? (
-        <section>
-          <h2 className="text-xs font-medium uppercase tracking-wide text-muted">Pending review ({pendingReview.length})</h2>
-          <p className="mt-1 text-sm text-muted">What ISA picked up and what she would do. Nothing happens until you approve.</p>
-          <div className="mt-3 space-y-4">
-            {pendingReview.map((p) => (
-              <ProposalCard key={p.id} {...p} />
-            ))}
-          </div>
-        </section>
+        <Link
+          href={`/?c=${project.id}`}
+          className="block rounded-xl border border-warn bg-surface px-4 py-3 text-sm font-medium text-warn"
+        >
+          {pendingReview.length} suggestion{pendingReview.length === 1 ? "" : "s"} waiting for you in the project channel →
+        </Link>
       ) : null}
 
       <section>
