@@ -5,19 +5,19 @@ import { asc } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { chatTools } from "./chat-tools";
 import { claudeStructured, MODEL } from "./llm";
-import { ROLE } from "./prompts";
 
-const CHAT_SYSTEM = `${ROLE}
+const CHAT_SYSTEM = `You are ISA, the owner's AI business analyst and personal secretary, built on Claude. In this chat you are a full assistant: answer any question the way Claude would, with real reasoning and expertise, whether it is about the owner's projects or anything else (writing, analysis, product and engineering questions, planning, explanations).
 
-You are talking with the owner in ISA's chat. The owner uses it to guide you: correct a draft, move an item to the right project, set a rule, or ask what you know.
+What makes you different from a plain chat: you can look at everything ISA has gathered for the owner. Meeting transcripts, emails and Slack messages are filed under projects, with their requirements, people, rules, Jira tickets, the tickets' change history, and the proposals waiting in the inbox. You can also search all of Jira by topic.
 
-- Look things up with your tools before answering; do not guess ids.
-- You can change drafts, projects and rules. You never send anything to Jira, Slack or email yourself: approved proposals in the inbox do that. When you revise or create a proposal, tell the owner it is waiting in the inbox.
-- Say where your answer comes from. When you decline or cannot do something, explain why in one sentence with what you checked (e.g. "I checked Jira just now and SCRUM-5 still exists"), then say exactly what the owner can reply to go ahead.
-- When you mention a Jira ticket, give its key and its link, e.g. "SCRUM-12 (https://...)". Use only links your tools returned.
-- To answer about a meeting, read its transcript with get_item rather than guessing from the title.
-- When the owner asks about a topic, research Jira first with research_jira (it also finds tickets ISA did not create), and say what you found, with ticket keys and links.
-- Answer in a few plain sentences. No headings.`;
+How to work:
+- When a question touches the owner's work, look it up with your tools before answering, and ground your answer in what you found. Do not guess ids, ticket keys, names or decisions. Use several tools when needed: e.g. read the project, read the meeting transcript with get_item, and research Jira for the topic.
+- Say where your answer comes from ("In the Nov 20 meeting, Ana said...", "I checked Jira just now and SCRUM-5 still exists"). If something is missing or you could not check it, say so plainly.
+- When you decline or cannot do something, explain why in a sentence, with what you checked, and say exactly what the owner can reply to go ahead.
+- Act like a professional analyst: point out gaps, risks, conflicts and follow-ups the owner should know about, and suggest next steps.
+- You can change drafts, projects and rules. You never send anything to Jira, Slack or email yourself: approved proposals in the inbox do that. When you create or revise a proposal, say it is waiting in the inbox.
+- When you mention a Jira ticket, give its key with its link, e.g. "SCRUM-12 (https://...)". Use only links your tools returned.
+- Write in Markdown. Fit the length to the question: a short answer for a simple question, structure (short headings, lists, tables) for a longer one.`;
 
 /** Send the owner's message to ISA, run any tools it uses, and store the conversation. Returns ISA's reply. */
 export async function sendChat(text: string): Promise<string> {
@@ -143,18 +143,46 @@ async function runChat(text: string, messages: BetaMessageParam[]): Promise<stri
     .trim();
 }
 
-/** The conversation as the owner sees it: only the text, without tool calls. */
-export async function chatTranscript(): Promise<{ id: string; role: "user" | "assistant"; text: string }[]> {
+const TOOL_LABEL: Record<string, string> = {
+  list_projects: "projects",
+  get_project: "project and Jira check",
+  list_project_items: "project items",
+  get_item: "full transcript or message",
+  search_items: "meetings, emails and Slack",
+  research_jira: "Jira search",
+  ticket_history: "Jira change history",
+  list_pending_proposals: "inbox",
+};
+
+/**
+ * The conversation as the owner sees it: the text, plus what ISA looked at to answer
+ * (shown under each answer, so the owner can tell where it comes from).
+ */
+export async function chatTranscript(): Promise<{ id: string; role: "user" | "assistant"; text: string; used: string[] }[]> {
   const rows = await db.query.chatMessages.findMany({ orderBy: asc(schema.chatMessages.createdAt) });
-  return rows.flatMap((m) => {
-    const blocks = m.content as { type: string; text?: string }[];
+  const out: { id: string; role: "user" | "assistant"; text: string; used: string[] }[] = [];
+  let used: string[] = [];
+  for (const m of rows) {
+    const blocks = m.content as { type: string; text?: string; name?: string }[];
+    for (const b of blocks) if (b.type === "tool_use" && b.name) used.push(TOOL_LABEL[b.name] ?? b.name.replace(/_/g, " "));
     const text = blocks
       .filter((b) => b.type === "text" && b.text)
       .map((b) => b.text)
       .join("\n")
       .trim();
-    return text ? [{ id: m.id, role: m.role as "user" | "assistant", text }] : [];
-  });
+    if (!text) continue;
+    const role = m.role as "user" | "assistant";
+    if (role === "user") used = [];
+    const prev = out.at(-1);
+    if (role === "assistant" && prev?.role === "assistant") {
+      prev.text += `\n\n${text}`;
+      prev.used = [...new Set([...prev.used, ...used])];
+    } else {
+      out.push({ id: m.id, role, text, used: role === "assistant" ? [...new Set(used)] : [] });
+    }
+    if (role === "assistant") used = [];
+  }
+  return out;
 }
 
 export async function clearChat() {

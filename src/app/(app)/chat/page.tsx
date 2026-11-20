@@ -18,7 +18,7 @@ export default async function ChatPage({ searchParams }: PageProps<"/chat">) {
         ) : null}
       </div>
       <p className="mt-1 text-sm text-muted">
-        Correct a draft, move something to the right project, or tell ISA a rule. Changes wait in the inbox for your approval.
+        Ask anything. ISA knows your projects, meetings, emails, Slack and Jira, and can correct drafts or set rules. Changes wait in the inbox for your approval.
       </p>
       <ChatPanel messages={messages} initial={typeof ask === "string" ? ask : ""} />
     </div>

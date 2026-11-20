@@ -32,3 +32,25 @@ describe("chat history", () => {
     ]);
   });
 });
+
+describe("chat transcript", () => {
+  it("shows what ISA looked at under each answer", async () => {
+    const { drizzle } = await import("drizzle-orm/postgres-js");
+    const { migrate } = await import("drizzle-orm/postgres-js/migrator");
+    const postgres = (await import("postgres")).default;
+    const sql = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} });
+    await migrate(drizzle(sql), { migrationsFolder: "./drizzle" });
+    await sql.end();
+    const { db, schema } = await import("@/db");
+    const { chatTranscript } = await import("@/lib/brain/chat");
+    await db.delete(schema.chatMessages);
+    const base = Date.now();
+    await db.insert(schema.chatMessages).values(history.map((m, i) => ({ role: m.role as "user" | "assistant", content: m.content as never, createdAt: new Date(base + i) })));
+    const t = await chatTranscript();
+    expect(t.map((m) => [m.role, m.text, m.used])).toEqual([
+      ["user", "Create the tickets again", []],
+      ["assistant", "Checking.\n\nThey exist.", ["project and Jira check"]],
+    ]);
+    await db.delete(schema.chatMessages);
+  });
+});

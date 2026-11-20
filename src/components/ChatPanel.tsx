@@ -1,15 +1,32 @@
 "use client";
 
 import { useOptimistic, useRef, useState, useTransition } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { sendChatMessage } from "@/app/(app)/chat/actions";
 
-type Message = { id: string; role: "user" | "assistant"; text: string };
+type Message = { id: string; role: "user" | "assistant"; text: string; used?: string[] };
 
 const EXAMPLES = [
   "What do we know about the login project?",
+  "What does Jira have about MFA, and what is missing?",
   "Make the MFA ticket support SMS codes too",
   "The billing email belongs to the Login project",
 ];
+
+/** ISA's answer, rendered from Markdown. */
+function Answer({ text }: { text: string }) {
+  return (
+    <div className="chat-md">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{ a: ({ href, children }) => <a href={href} target="_blank" rel="noreferrer" className="underline">{children}</a> }}
+      >
+        {text}
+      </ReactMarkdown>
+    </div>
+  );
+}
 
 /** Message text with web links made clickable. */
 function Linked({ text }: { text: string }) {
@@ -65,13 +82,18 @@ export function ChatPanel({ messages, initial = "" }: { messages: Message[]; ini
         <ul className="space-y-3">
           {optimistic.map((m) => (
             <li key={m.id} className={m.role === "user" ? "flex justify-end" : ""}>
-              <p
-                className={`max-w-[85%] whitespace-pre-wrap rounded-xl px-4 py-2.5 text-sm ${
-                  m.role === "user" ? "bg-accent text-white" : "border border-line bg-surface"
-                }`}
-              >
-                <Linked text={m.text} />
-              </p>
+              {m.role === "user" ? (
+                <p className="max-w-[85%] whitespace-pre-wrap rounded-xl bg-accent px-4 py-2.5 text-sm text-white">
+                  <Linked text={m.text} />
+                </p>
+              ) : (
+                <div className="max-w-[85%]">
+                  <div className="rounded-xl border border-line bg-surface px-4 py-2.5 text-sm">
+                    <Answer text={m.text} />
+                  </div>
+                  {m.used?.length ? <p className="mt-1 px-1 text-xs text-muted">Looked at: {m.used.join(", ")}</p> : null}
+                </div>
+              )}
             </li>
           ))}
           {pending ? <li className="text-sm text-muted">ISA is working…</li> : null}
@@ -83,8 +105,21 @@ export function ChatPanel({ messages, initial = "" }: { messages: Message[]; ini
         action={(form) => send(String(form.get("text") ?? ""))}
         className="flex gap-2 rounded-xl border border-line bg-surface p-2"
       >
-        <input name="text" autoComplete="off" defaultValue={initial} autoFocus={!!initial} placeholder="Message ISA" className="flex-1 bg-transparent px-2 text-sm outline-none" />
-        <button disabled={pending} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-60">
+        <textarea
+          name="text"
+          rows={2}
+          defaultValue={initial}
+          autoFocus={!!initial}
+          placeholder="Ask ISA anything (Enter to send, Shift+Enter for a new line)"
+          className="flex-1 resize-none bg-transparent px-2 py-1 text-sm outline-none"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              e.currentTarget.form?.requestSubmit();
+            }
+          }}
+        />
+        <button disabled={pending} className="self-end rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-60">
           Send
         </button>
       </form>
