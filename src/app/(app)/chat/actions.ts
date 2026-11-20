@@ -10,7 +10,7 @@ export async function sendChatMessage(form: FormData): Promise<string | null> {
   try {
     await sendChat(text);
   } catch (err) {
-    console.error("chat failed", { error: err instanceof Error ? err.name : "unknown" });
+    console.error("chat failed", { error: err instanceof Error ? err.name : "unknown", status: (err as { status?: number })?.status ?? null });
     return "ISA could not answer. Check the Anthropic key on the Connections page and try again.";
   }
   revalidatePath("/", "layout");
