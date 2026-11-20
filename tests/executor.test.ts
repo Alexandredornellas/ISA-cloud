@@ -49,8 +49,8 @@ const newProjectPlan: Plan = {
     { ref: "R2", op: "create", title: "MFA code", description: "", status: "proposed", approvedBy: null, reason: "" },
   ],
   actions: [
-    { type: "jira_create", requirementRef: "R1", summary: "Password sign-in", description: "d", issueType: "Story" },
-    { type: "jira_create", requirementRef: "R2", summary: "MFA code", description: "d", issueType: "Story" },
+    { type: "jira_create", requirementRef: "R1", summary: "Password sign-in", description: "d", kind: "story" },
+    { type: "jira_create", requirementRef: "R2", summary: "MFA code", description: "d", kind: "story" },
     { type: "jira_comment", requirementRef: "R2", issueKey: null, body: "Waiting on approval" },
   ],
   openQuestions: [],
@@ -158,5 +158,33 @@ describe("retryFailedActions", () => {
     const saved = await db.query.proposals.findFirst({ where: eq(schema.proposals.id, p.id) });
     expect(saved?.status).toBe("executed");
     expect(saved?.error).toBeNull();
+  });
+});
+
+describe("ticket formats", () => {
+  it("creates each kind as the Jira type and label from the owner's format", async () => {
+    const { ticketFormats } = await import("@/lib/ticket-formats");
+    await db.delete(schema.ticketFormats);
+    await db.insert(schema.ticketFormats).values({ kind: "spike", jiraIssueType: "Research", label: "spike", template: "Q?" });
+    const created: unknown[] = [];
+    const jira = {
+      issueUrl: (k: string) => `https://x/${k}`,
+      createIssue: async (i: unknown) => {
+        created.push(i);
+        return { key: "ISA-9", url: "https://x/ISA-9" };
+      },
+    };
+    const p = await addProposal({
+      plan: {
+        ...newProjectPlan,
+        actions: [{ type: "jira_create", requirementRef: "R1", summary: "Look into SSO", description: "d", kind: "spike" }],
+      },
+    });
+
+    await executeProposal(p.id, { jira: jira as never, slack: null, email: null });
+
+    expect(created).toEqual([{ summary: "Look into SSO", description: "d", issueType: "Research", labels: ["spike"] }]);
+    expect((await ticketFormats()).find((f) => f.kind === "story")?.jiraIssueType).toBe("Story");
+    await db.delete(schema.ticketFormats);
   });
 });

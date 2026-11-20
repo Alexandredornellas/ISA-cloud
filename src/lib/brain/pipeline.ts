@@ -4,6 +4,12 @@ import { PlanSchema, SortResultSchema, type Plan, type SortResult } from "@/lib/
 import { eventText, projectBlock, projectsContext } from "./context";
 import { PROPOSE_SYSTEM, SORT_SYSTEM } from "./prompts";
 import type { StructuredLLM } from "./llm";
+import { formatsText, ticketFormats } from "@/lib/ticket-formats";
+
+/** Context for drafting: the owner's ticket formats, then the project. */
+async function withFormats(context: string): Promise<string> {
+  return `${formatsText(await ticketFormats())}\n\n${context}`;
+}
 
 type EventRow = typeof schema.events.$inferSelect;
 
@@ -98,7 +104,7 @@ export async function proposeUpdate(projectId: string, events: EventRow[], llm: 
   if (!project) throw new Error("Project not found");
   const plan = await llm({
     system: PROPOSE_SYSTEM,
-    context: `The project:\n${await projectBlock(projectId)}`,
+    context: await withFormats(`The project:\n${await projectBlock(projectId)}`),
     input: `New items:\n${events.map(eventText).join("\n\n")}`,
     schema: PlanSchema,
     effort: "high",
@@ -121,7 +127,7 @@ export async function proposeUpdate(projectId: string, events: EventRow[], llm: 
 async function proposeNewProject(event: EventRow, name: string, llm: StructuredLLM): Promise<string> {
   const plan = await llm({
     system: PROPOSE_SYSTEM,
-    context: `This is a new project. Suggested name: ${name}`,
+    context: await withFormats(`This is a new project. Suggested name: ${name}`),
     input: `New items:\n${eventText(event)}`,
     schema: PlanSchema,
     effort: "high",
@@ -203,9 +209,11 @@ export async function reviseProposal(proposalId: string, instruction: string, ll
     : [];
   const plan = await llm({
     system: PROPOSE_SYSTEM,
-    context: proposal.projectId
-      ? `The project:\n${await projectBlock(proposal.projectId)}`
-      : `This is a new project. Suggested name: ${proposal.plan.projectName ?? ""}`,
+    context: await withFormats(
+      proposal.projectId
+        ? `The project:\n${await projectBlock(proposal.projectId)}`
+        : `This is a new project. Suggested name: ${proposal.plan.projectName ?? ""}`,
+    ),
     input: [
       `New items:\n${events.map(eventText).join("\n\n") || "(none)"}`,
       `Your current draft plan:\n${JSON.stringify(proposal.plan, null, 2)}`,

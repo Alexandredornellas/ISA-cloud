@@ -26,7 +26,7 @@ const plan = (summary: string): Plan => ({
   projectName: "Billing",
   people: [],
   requirementChanges: [{ ref: "R1", op: "create", title: "Invoices", description: "", status: "proposed", approvedBy: null, reason: "" }],
-  actions: [{ type: "jira_create", requirementRef: "R1", summary: "Invoices", description: "", issueType: "Story" }],
+  actions: [{ type: "jira_create", requirementRef: "R1", summary: "Invoices", description: "", kind: "story" }],
   openQuestions: [],
 });
 

@@ -2,6 +2,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Action, Person, Plan } from "@/lib/plan";
 import type { JiraClient } from "@/lib/jira";
+import { ticketFormats, type TicketKind } from "@/lib/ticket-formats";
 
 // Outside services the executor can act on. Slack and email are wired in later.
 export type Senders = {
@@ -219,7 +220,7 @@ async function runAction(
   switch (action.type) {
     case "jira_create": {
       const jira = need(senders.jira, "Jira");
-      const issue = await jira.createIssue(action);
+      const issue = await jira.createIssue({ summary: action.summary, description: action.description, ...(await jiraTypeFor(action)) });
       const req = refs.get(action.requirementRef);
       if (req) {
         const [row] = await db
@@ -264,4 +265,13 @@ function issueKeyFor(explicit: string | null, ref: string, refs: Map<string, Req
 function need<T>(sender: T | null, name: string): T {
   if (!sender) throw new Error(`${name} is not connected`);
   return sender;
+}
+
+/** The Jira issue type and label for a ticket kind, from the owner's ticket formats. */
+async function jiraTypeFor(action: Extract<Action, { type: "jira_create" }>): Promise<{ issueType: string; labels: string[] }> {
+  // Proposals drafted before ticket kinds existed carry a Jira issue type instead.
+  const legacy = (action as { issueType?: string }).issueType;
+  if (!action.kind && legacy) return { issueType: legacy, labels: [] };
+  const format = (await ticketFormats()).find((f) => f.kind === (action.kind as TicketKind));
+  return { issueType: format?.jiraIssueType ?? "Task", labels: format?.label ? [format.label] : [] };
 }

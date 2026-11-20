@@ -28,7 +28,7 @@ const JiraCreate = z.object({
   requirementRef: z.string(),
   summary: z.string(),
   description: z.string(),
-  issueType: z.enum(["Story", "Task", "Bug"]),
+  kind: z.enum(["story", "epic", "spike", "bug", "test"]).describe("Which ticket format to use"),
 });
 
 const JiraUpdate = z.object({
@@ -100,10 +100,18 @@ export const SortResultSchema = z.object({
 });
 export type SortResult = z.infer<typeof SortResultSchema>;
 
+const KIND_LABEL: Record<string, string> = {
+  story: "story",
+  epic: "epic",
+  spike: "spike",
+  bug: "bug",
+  test: "testing task",
+};
+
 export function describeAction(a: Action): string {
   switch (a.type) {
     case "jira_create":
-      return `Create ${a.issueType}: ${a.summary}`;
+      return `Create ${KIND_LABEL[a.kind] ?? "ticket"}: ${a.summary}`;
     case "jira_update":
       return `Update ${a.issueKey ?? a.requirementRef}${a.summary ? `: ${a.summary}` : ""}`;
     case "jira_comment":

@@ -232,3 +232,13 @@ export const workerState = pgTable("worker_state", {
   value: jsonb("value").$type<Record<string, string>>().notNull().default({}),
   ...timestamps,
 });
+
+// The owner's ticket format for each kind of ticket (story, epic, spike, bug, test).
+// Kinds without a row use the defaults in src/lib/ticket-formats.ts.
+export const ticketFormats = pgTable("ticket_formats", {
+  kind: text("kind").primaryKey(),
+  jiraIssueType: text("jira_issue_type").notNull(),
+  label: text("label"),
+  template: text("template").notNull(),
+  ...timestamps,
+});

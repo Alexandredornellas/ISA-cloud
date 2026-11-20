@@ -104,6 +104,7 @@ export class JiraClient {
     summary: string;
     description: string;
     issueType: string;
+    labels?: string[];
     projectKey?: string;
   }): Promise<JiraIssue> {
     const out = await this.request<{ key: string }>("POST", "/issue", {
@@ -112,6 +113,7 @@ export class JiraClient {
         summary: input.summary.slice(0, 254),
         issuetype: { name: input.issueType },
         description: toAdf(input.description),
+        ...(input.labels?.length ? { labels: input.labels.map((l) => l.trim().replace(/\s+/g, "-")) } : {}),
       },
     });
     return { key: out.key, url: this.issueUrl(out.key) };

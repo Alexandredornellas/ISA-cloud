@@ -38,7 +38,7 @@ const plan: Plan = {
     { ref: "R1", op: "create", title: "MFA", description: "", status: "proposed", approvedBy: null, reason: "" },
   ],
   actions: [
-    { type: "jira_create", requirementRef: "R1", summary: "MFA", description: "", issueType: "Story" },
+    { type: "jira_create", requirementRef: "R1", summary: "MFA", description: "", kind: "story" },
     { type: "slack_message", channel: "", recipientLabel: "nobody", threadTs: null, text: "hi" },
   ],
   openQuestions: [],
@@ -83,6 +83,8 @@ describe("processEvent", () => {
     expect(proposals[0].plan.actions.map((a) => a.type)).toEqual(["jira_create"]);
     // Claude saw where to reply on the same channel.
     expect(calls[1].input).toContain("channel=C123");
+    // Claude drafts with the owner's ticket formats.
+    expect(calls[1].context).toContain('<format kind="story" name="User story">');
   });
 
   it("files a confident match and drafts that project's update", async () => {
