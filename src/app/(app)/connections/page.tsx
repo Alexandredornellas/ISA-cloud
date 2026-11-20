@@ -13,24 +13,50 @@ type Status = { name: string; ok: boolean; detail: string };
 async function jiraStatus(): Promise<Status> {
   try {
     const project = await new JiraClient(jiraConfigFromEnv()).checkProject();
-    return { name: "Jira", ok: true, detail: `Project ${project.key}: ${project.name}` };
+    return {
+      name: "Jira",
+      ok: true,
+      detail: `Project ${project.key}: ${project.name}`,
+    };
   } catch (err) {
-    return { name: "Jira", ok: false, detail: err instanceof Error ? err.message : "Not connected" };
+    return {
+      name: "Jira",
+      ok: false,
+      detail: err instanceof Error ? err.message : "Not connected",
+    };
   }
 }
 
 async function slackStatus(): Promise<Status> {
   const slack = liveSlack();
-  if (!slack) return { name: "Slack", ok: false, detail: "Set SLACK_USER_TOKEN and SLACK_BOT_TOKEN" };
+  if (!slack)
+    return {
+      name: "Slack",
+      ok: false,
+      detail: "Set SLACK_USER_TOKEN and SLACK_BOT_TOKEN",
+    };
   try {
     const me = await slack.whoAmI();
-    return { name: "Slack", ok: true, detail: `${me.team}, reading as ${me.user}, posting as ISA` };
+    return {
+      name: "Slack",
+      ok: true,
+      detail: `${me.team}, reading as ${me.user}, posting as ISA`,
+    };
   } catch (err) {
-    return { name: "Slack", ok: false, detail: err instanceof Error ? err.message : "Not connected" };
+    return {
+      name: "Slack",
+      ok: false,
+      detail: err instanceof Error ? err.message : "Not connected",
+    };
   }
 }
 
-function envStatus(name: string, vars: string[], okDetail: string, missingDetail: string): Status {
+function envStatus(
+  name: string,
+  vars: string[],
+  okDetail: string,
+  missingDetail: string,
+): Status {
   const ok = vars.every((v) => !!process.env[v]);
   return { name, ok, detail: ok ? okDetail : missingDetail };
 }
@@ -45,9 +71,19 @@ const BOT_LABEL = {
 
 export default async function ConnectionsPage() {
   const statuses: Status[] = [
-    envStatus("Claude", ["ANTHROPIC_API_KEY"], "API key set", "Set ANTHROPIC_API_KEY"),
+    envStatus(
+      "Claude",
+      ["ANTHROPIC_API_KEY"],
+      "API key set",
+      "Set ANTHROPIC_API_KEY",
+    ),
     await jiraStatus(),
-    envStatus("Meeting bot", ["RECALL_API_KEY"], "Recall.ai key set", "Set RECALL_API_KEY"),
+    envStatus(
+      "Meeting bot",
+      ["RECALL_API_KEY"],
+      "Recall.ai key set",
+      "Set RECALL_API_KEY",
+    ),
     await slackStatus(),
   ];
   const googleConfigured = (() => {
@@ -60,20 +96,43 @@ export default async function ConnectionsPage() {
   })();
   const google = await GoogleClient.connection();
   const autoJoin = google?.state.autoJoin === "on";
-  const bots = await db.select().from(schema.meetingBots).orderBy(desc(schema.meetingBots.createdAt)).limit(10);
+  const bots = await db
+    .select()
+    .from(schema.meetingBots)
+    .orderBy(desc(schema.meetingBots.createdAt))
+    .limit(10);
 
   return (
-    <div className="space-y-8">
+    <div className="mx-auto max-w-3xl space-y-8 px-4 py-7 sm:px-8">
       <section>
-        <h1 className="text-2xl font-semibold">Connections</h1>
+        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
+          Connections
+        </h1>
+        <p className="mt-1 text-sm text-muted">
+          Where ISA listens (meetings, email, Slack) and where she acts after
+          you approve (Jira, Slack, email).
+        </p>
         <ul className="mt-5 divide-y divide-line rounded-xl border border-line bg-surface">
           {statuses.map((s) => (
-            <li key={s.name} className="flex items-start justify-between gap-4 p-4">
-              <div>
-                <p className="font-medium">{s.name}</p>
-                <p className="mt-0.5 break-all text-sm text-muted">{s.detail}</p>
+            <li
+              key={s.name}
+              className="flex items-start justify-between gap-4 p-4"
+            >
+              <div className="flex min-w-0 gap-3">
+                <span
+                  aria-hidden="true"
+                  className={`mt-1.5 h-2.5 w-2.5 flex-none rounded-full ${s.ok ? "bg-ok" : "bg-line"}`}
+                />
+                <div className="min-w-0">
+                  <p className="font-medium">{s.name}</p>
+                  <p className="mt-0.5 break-all text-sm text-muted">
+                    {s.detail}
+                  </p>
+                </div>
               </div>
-              <span className={`shrink-0 text-sm font-medium ${s.ok ? "text-ok" : "text-muted"}`}>
+              <span
+                className={`shrink-0 text-sm font-medium ${s.ok ? "text-ok" : "text-muted"}`}
+              >
                 {s.ok ? "Connected" : "Off"}
               </span>
             </li>
@@ -91,7 +150,10 @@ export default async function ConnectionsPage() {
             </p>
           </div>
           {googleConfigured ? (
-            <a href="/api/google/connect" className="rounded-lg border border-line px-4 py-2 text-sm font-medium">
+            <a
+              href="/api/google/connect"
+              className="rounded-lg border border-line px-4 py-2 text-sm font-medium"
+            >
               {google ? "Reconnect" : "Connect Google"}
             </a>
           ) : null}
@@ -101,13 +163,21 @@ export default async function ConnectionsPage() {
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">Meetings</h2>
         {google ? (
-          <form action={setAutoJoin} className="flex items-center justify-between gap-3 rounded-xl border border-line bg-surface p-4">
+          <form
+            action={setAutoJoin}
+            className="flex items-center justify-between gap-3 rounded-xl border border-line bg-surface p-4"
+          >
             <p className="text-sm">
               <span className="font-medium">Join my calendar meetings.</span>{" "}
-              <span className="text-muted">ISA Notetaker joins every meeting with a Zoom, Meet or Teams link that you have not declined.</span>
+              <span className="text-muted">
+                ISA Notetaker joins every meeting with a Zoom, Meet or Teams
+                link that you have not declined.
+              </span>
             </p>
             <input type="hidden" name="on" value={autoJoin ? "off" : "on"} />
-            <button className={`shrink-0 rounded-lg px-4 py-2 text-sm font-medium ${autoJoin ? "bg-accent text-white" : "border border-line"}`}>
+            <button
+              className={`shrink-0 rounded-lg px-4 py-2 text-sm font-medium ${autoJoin ? "bg-accent text-white" : "border border-line"}`}
+            >
               {autoJoin ? "On" : "Off"}
             </button>
           </form>
@@ -116,15 +186,23 @@ export default async function ConnectionsPage() {
         {bots.length ? (
           <ul className="divide-y divide-line rounded-xl border border-line bg-surface">
             {bots.map((b) => (
-              <li key={b.id} className="flex items-start justify-between gap-4 p-4 text-sm">
+              <li
+                key={b.id}
+                className="flex items-start justify-between gap-4 p-4 text-sm"
+              >
                 <div>
                   <p className="font-medium">{b.title}</p>
                   <p className="mt-0.5 text-muted">
-                    {(b.joinAt ?? b.createdAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}
+                    {(b.joinAt ?? b.createdAt).toLocaleString("en-US", {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    })}
                     {b.error ? ` · ${b.error}` : ""}
                   </p>
                 </div>
-                <span className={`shrink-0 font-medium ${b.status === "failed" ? "text-danger" : b.status === "done" ? "text-ok" : "text-muted"}`}>
+                <span
+                  className={`shrink-0 font-medium ${b.status === "failed" ? "text-danger" : b.status === "done" ? "text-ok" : "text-muted"}`}
+                >
                   {BOT_LABEL[b.status]}
                 </span>
               </li>

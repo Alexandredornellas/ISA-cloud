@@ -25,10 +25,14 @@ export function ChannelView({
   const [replyTo, setReplyTo] = useState<{ id: string; title: string } | null>(null);
 
   return (
-    <div className="space-y-6">
+    <div className="mt-6 space-y-8">
       {notifications.length ? (
         <section aria-label="Needs you" className="space-y-2.5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-warn">Needs you · {notifications.length}</p>
+          <h2 className="flex items-center gap-2 text-sm font-semibold">
+            <span className="h-2 w-2 rounded-full bg-warn" aria-hidden="true" />
+            Needs you
+            <span className="font-normal text-muted">{notifications.length}</span>
+          </h2>
           {notifications.map((n) => (
             <NotificationCard
               key={`${n.id}:${JSON.stringify(n.plan).length}`}
@@ -43,19 +47,25 @@ export function ChannelView({
           ))}
         </section>
       ) : projectId ? (
-        <p className="rounded-lg bg-ok/10 px-4 py-3 text-sm text-ok">All caught up. ISA posts here when something new comes in.</p>
+        <p className="flex items-center gap-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm text-muted">
+          <span className="h-2 w-2 rounded-full bg-ok" aria-hidden="true" />
+          Nothing needs you here. ISA posts a card when something new comes in.
+        </p>
       ) : null}
 
-      <ChatPanel
-        key={projectId ?? "general"}
-        messages={messages}
-        projectId={projectId}
-        examples={examples}
-        initial={initial}
-        replyTo={replyTo}
-        onClearReply={() => setReplyTo(null)}
-        placeholder={projectId ? `Ask ISA about ${name} (Enter to send, Shift+Enter for a new line)` : undefined}
-      />
+      <section aria-label="Chat with ISA">
+        <h2 className="text-sm font-semibold">Chat with ISA</h2>
+        <ChatPanel
+          key={projectId ?? "general"}
+          messages={messages}
+          projectId={projectId}
+          examples={examples}
+          initial={initial}
+          replyTo={replyTo}
+          onClearReply={() => setReplyTo(null)}
+          placeholder={projectId ? `Ask about ${name}…` : undefined}
+        />
+      </section>
     </div>
   );
 }

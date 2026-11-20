@@ -6,20 +6,13 @@ import type { Notification } from "@/lib/channels";
 import { dismissNotification, placeNotification, proceedNotification, retryProposal } from "@/app/(app)/actions";
 import { SubmitButton } from "@/components/SubmitButton";
 import { QuestionCard } from "@/components/QuestionCard";
-
-const SOURCE: Record<string, { label: string; mark: string; bg: string }> = {
-  zoom: { label: "Zoom", mark: "Z", bg: "#2D6CDF" },
-  meet: { label: "Google Meet", mark: "M", bg: "#00695C" },
-  teams: { label: "Teams", mark: "T", bg: "#4B53BC" },
-  gmail: { label: "Email", mark: "@", bg: "#B3261E" },
-  slack: { label: "Slack", mark: "S", bg: "#4A154B" },
-  manual: { label: "Note", mark: "N", bg: "#5F6368" },
-  jira: { label: "Jira", mark: "J", bg: "#2F5BD3" },
-};
+import { SourceMark } from "@/components/SourceMark";
+import { SOURCES, sourceOf, timeAgo } from "@/lib/sources";
 
 const KIND = { update: "Change", new_project: "New project", clarify: "Unclear" } as const;
 
 const time = (d: Date) => new Date(d).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+const SOURCE = SOURCES;
 
 /** The text a step would send or write, shown under it so the owner knows exactly what happens. */
 function stepDetail(a: Action): string | null {
@@ -67,7 +60,7 @@ export function NotificationCard({
   // The header names the latest source; a card that grew with new items says so.
   const first = n.sources.at(-1);
   const more = n.sources.length - 1;
-  const src = SOURCE[first?.source ?? "manual"] ?? SOURCE.manual;
+  const src = sourceOf(first?.source ?? "manual");
   const epicIndex = epicAction ? actions.indexOf(epicAction) : -1;
   const chosen = kept.filter((v, i) => v && !(epicMode === "existing" && i === epicIndex)).length;
   const failed = n.status === "failed";
@@ -94,19 +87,13 @@ export function NotificationCard({
   if (n.question) return <QuestionCard q={n.question} />;
 
   return (
-    <article className={`rounded-2xl border bg-surface ${open ? "border-warn shadow-sm" : "border-line"}`}>
-      <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full items-center gap-3 px-4 py-3.5 text-left">
-        <span
-          aria-hidden="true"
-          className="inline-flex h-8 w-8 flex-none items-center justify-center rounded-lg text-sm font-bold text-white"
-          style={{ background: failed ? "#B3261E" : src.bg }}
-        >
-          {failed ? "!" : src.mark}
-        </span>
+    <article className={`rounded-xl border bg-surface transition-shadow ${open ? "border-warn/60 shadow-md" : "border-line hover:border-warn/50"}`}>
+      <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full items-center gap-3 px-4 py-3 text-left">
+        <SourceMark source={first?.source ?? "manual"} failed={failed} />
         <span className="min-w-0 flex-1">
           <span className="block font-semibold">{failed ? `Something failed: ${n.title}` : n.title}</span>
           <span className="block text-sm text-muted">
-            {first ? `${first.author ? `${first.author.replace(/\s*<.*>$/, "")} in ` : ""}${src.label} · ${time(first.at)}` : time(n.createdAt)}
+            {first ? `${first.author ? `${first.author.replace(/\s*<.*>$/, "")} in ` : ""}${src.label} · ${timeAgo(first.at)}` : timeAgo(n.createdAt)}
             {more > 0 ? ` · updated, ${more + 1} sources` : ""}
           </span>
         </span>

@@ -52,4 +52,4 @@ Create a Railway project with a Postgres database and this repository as a servi
 | `src/lib/recall.ts`, `src/lib/calendar.ts` | Meeting bot (Recall.ai) and calendar auto-join |
 | `src/lib/slack.ts`, `src/lib/slack-poll.ts` | Slack: read as the owner, post as the ISA bot |
 | `src/lib/google.ts`, `src/lib/gmail.ts` | Google sign-in, Gmail read and send |
-| `src/app/(app)` | Inbox, Ask ISA, Projects, Connections |
+| `src/app/(app)` | Home (sidebar of projects; each project shows what needs you, the chat, and an Activity / Requirements / People side panel), Connections, Settings |

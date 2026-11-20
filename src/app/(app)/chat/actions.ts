@@ -19,7 +19,7 @@ export async function sendChatMessage(form: FormData): Promise<string | null> {
 
 export async function clearChatMessages(form: FormData) {
   await clearChat(projectIdOf(form));
-  revalidatePath("/chat");
+  revalidatePath("/", "layout");
 }
 
 function projectIdOf(form: FormData): string | null {

@@ -2,6 +2,8 @@
 
 :root {
   --bg: #f7f7f5;
+  --sidebar: #efeeea;
+  --hover: #e7e6e1;
   --surface: #ffffff;
   --line: #e4e3df;
   --ink: #1d1d1b;
@@ -16,6 +18,8 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #141413;
+    --sidebar: #191918;
+    --hover: #262624;
     --surface: #1d1d1b;
     --line: #2f2f2c;
     --ink: #ecebe7;
@@ -31,6 +35,8 @@
 @theme inline {
   --color-bg: var(--bg);
   --color-surface: var(--surface);
+  --color-sidebar: var(--sidebar);
+  --color-hover: var(--hover);
   --color-line: var(--line);
   --color-ink: var(--ink);
   --color-muted: var(--muted);

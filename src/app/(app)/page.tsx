@@ -1,7 +1,12 @@
-import Link from "next/link";
+import { asc, eq } from "drizzle-orm";
+import { db, schema } from "@/db";
 import { chatTranscript } from "@/lib/brain/chat";
 import { channels, decisions, notifications } from "@/lib/channels";
+import { activity } from "@/lib/activity";
 import { ChannelView } from "@/components/ChannelView";
+import { Workspace, type PanelTab } from "@/components/Workspace";
+import { ActivityFeed } from "@/components/ActivityFeed";
+import { PeopleAndRules, RequirementList } from "@/components/ProjectPanels";
 import { clearChatMessages } from "./chat/actions";
 
 export const dynamic = "force-dynamic";
@@ -12,14 +17,14 @@ const PROJECT_EXAMPLES = [
   "What should I ask the stakeholders next?",
 ];
 
-/** ISA's home: channels on the left (General plus one per project), the selected channel on the right. */
+/** ISA's home: Ask ISA (general) or one project, with what needs you, the chat, and a side panel. */
 export default async function HomePage({ searchParams }: PageProps<"/">) {
   const { c, ask } = await searchParams;
   const all = await channels();
-  const projects = all.filter((ch) => ch.id);
-  const current = (typeof c === "string" && projects.find((ch) => ch.id === c)) || all[0];
+  const current = (typeof c === "string" && all.find((ch) => ch.id === c)) || all[0];
   const projectId = current.id;
-  const [notes, chat, log] = await Promise.all([notifications(projectId), chatTranscript(projectId), decisions(projectId)]);
+
+  const [notes, chat, log, feed] = await Promise.all([notifications(projectId), chatTranscript(projectId), decisions(projectId), activity(projectId)]);
   const messages = [
     ...chat.map((m) => ({ id: m.id, role: m.role, text: m.text, used: m.used, at: m.at })),
     ...log.map((l) => ({ id: `log-${l.id}`, role: "log" as const, text: `${l.at.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} · ${l.text}`, at: l.at })),
@@ -27,85 +32,74 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
     .sort((a, b) => a.at.getTime() - b.at.getTime())
     .map((m) => ({ id: m.id, role: m.role, text: m.text, used: "used" in m ? m.used : undefined }));
 
-  const open = projects.filter((p) => !p.done);
-  const done = projects.filter((p) => p.done);
-  const item = (ch: (typeof all)[number]) => {
-    const active = ch.id === current.id;
-    return (
-      <Link
-        key={ch.id ?? "general"}
-        href={ch.id ? `/?c=${ch.id}` : "/"}
-        aria-current={active ? "page" : undefined}
-        className={`flex min-h-12 shrink-0 items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm ${active ? "bg-accent-soft text-ink" : "text-ink hover:bg-bg"}`}
-      >
-        <span className="min-w-0">
-          <span className="block truncate font-medium">{ch.name}</span>
-          <span className={`block text-xs ${ch.count ? "text-warn" : "text-muted"}`}>
-            {ch.count ? `${ch.count} need${ch.count === 1 ? "s" : ""} you` : ch.id ? "Up to date" : "All projects"}
-          </span>
-        </span>
-        {ch.count ? (
-          <span className="inline-flex h-5 min-w-5 flex-none items-center justify-center rounded-full bg-warn px-1.5 text-xs font-semibold text-surface">
-            {ch.count}
-          </span>
+  const project = projectId ? await db.query.projects.findFirst({ where: eq(schema.projects.id, projectId) }) : null;
+  const [requirements, rules] = projectId
+    ? await Promise.all([
+        db.query.requirements.findMany({ where: eq(schema.requirements.projectId, projectId), orderBy: asc(schema.requirements.createdAt) }),
+        db.query.projectRules.findMany({ where: eq(schema.projectRules.projectId, projectId) }),
+      ])
+    : [[], []];
+  const open = requirements.filter((r) => r.status !== "done" && r.status !== "dropped").length;
+  const tickets = requirements.filter((r) => r.jiraIssueKey).length;
+
+  const tabs: PanelTab[] = [
+    { id: "activity", label: "Activity", icon: "clock", content: <ActivityFeed entries={feed} showProject={!projectId} /> },
+    ...(project
+      ? [
+          { id: "requirements", label: "Requirements", icon: "list" as const, count: open, content: <RequirementList requirements={requirements} /> },
+          { id: "people", label: "People & rules", icon: "users" as const, content: <PeopleAndRules projectId={project.id} people={project.people} rules={rules} /> },
+        ]
+      : []),
+  ];
+
+  const header = (
+    <div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{project ? project.name : "Ask ISA"}</h1>
+        {chat.length ? (
+          <form action={clearChatMessages}>
+            {projectId ? <input type="hidden" name="projectId" value={projectId} /> : null}
+            <button className="rounded-md px-2 py-1 text-xs text-muted hover:bg-hover hover:text-ink">New chat</button>
+          </form>
         ) : null}
-      </Link>
-    );
-  };
+      </div>
+      {project ? (
+        <>
+          {project.summary ? <p className="mt-1 line-clamp-2 text-sm text-muted">{project.summary}</p> : null}
+          <p className="mt-2 flex flex-wrap gap-2 text-xs">
+            <span className={`rounded-full px-2 py-0.5 ${notes.length ? "bg-warn/15 font-medium text-warn" : "bg-ok/15 text-ok"}`}>
+              {notes.length ? `${notes.length} need${notes.length === 1 ? "s" : ""} you` : "Up to date"}
+            </span>
+            <span className="rounded-full bg-hover px-2 py-0.5 text-muted">
+              {open} open requirement{open === 1 ? "" : "s"}
+            </span>
+            <span className="rounded-full bg-hover px-2 py-0.5 text-muted">
+              {tickets} Jira ticket{tickets === 1 ? "" : "s"}
+            </span>
+          </p>
+        </>
+      ) : (
+        <p className="mt-1 text-sm text-muted">Ask anything about your projects, meetings, email, Slack or Jira. Items ISA can&apos;t place in a project wait here.</p>
+      )}
+    </div>
+  );
 
   return (
-    <div className="grid gap-6 md:grid-cols-[240px_minmax(0,1fr)]">
-      <aside aria-label="Channels" className="min-w-0 md:border-r md:border-line md:pr-4">
-        <div className="flex gap-1 overflow-x-auto md:block md:space-y-1">
-          {item(all[0])}
-          <p className="hidden px-3 pt-4 text-xs font-semibold uppercase tracking-wide text-muted md:block">Projects</p>
-          {open.map(item)}
-          {open.length === 0 ? <p className="hidden px-3 text-sm text-muted md:block">No projects yet.</p> : null}
-          {done.length ? (
-            <>
-              <p className="hidden px-3 pt-4 text-xs font-semibold uppercase tracking-wide text-muted md:block">Done</p>
-              {done.map(item)}
-            </>
-          ) : null}
-        </div>
-      </aside>
-
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="text-2xl font-semibold">{current.name}</h1>
-            <p className="mt-1 text-sm text-muted">
-              {projectId
-                ? "Everything about this project: what needs you, and a chat with ISA that knows its meetings, emails, Slack and Jira."
-                : "Ask ISA anything. Items she can't place in a project wait here for you."}
-            </p>
-          </div>
-          <div className="flex gap-2">
-            {projectId ? (
-              <Link href={`/projects/${projectId}`} className="rounded-lg border border-line px-3 py-2 text-sm font-medium">
-                Requirements and tickets
-              </Link>
-            ) : null}
-            {chat.length ? (
-              <form action={clearChatMessages}>
-                {projectId ? <input type="hidden" name="projectId" value={projectId} /> : null}
-                <button className="rounded-lg px-3 py-2 text-sm text-muted hover:text-ink">New chat</button>
-              </form>
-            ) : null}
-          </div>
-        </div>
-        <div className="mt-5">
-          <ChannelView
-            key={projectId ?? "general"}
-            projectId={projectId}
-            name={current.name}
-            notifications={notes}
-            messages={messages}
-            examples={projectId ? PROJECT_EXAMPLES : undefined}
-            initial={typeof ask === "string" ? ask : ""}
-          />
-        </div>
-      </div>
-    </div>
+    <Workspace
+      key={projectId ?? "general"}
+      header={header}
+      tabs={tabs}
+      main={
+        <ChannelView
+          key={projectId ?? "general"}
+          projectId={projectId}
+          name={current.name}
+          notifications={notes}
+          messages={messages}
+          examples={projectId ? PROJECT_EXAMPLES : undefined}
+          initial={typeof ask === "string" ? ask : ""}
+        />
+      }
+    />
   );
 }

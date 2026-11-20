@@ -17,8 +17,9 @@ const input = "w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm";
 export default async function SettingsPage() {
   const [formats, settings] = await Promise.all([ticketFormats(), getSettings()]);
   return (
-    <div>
-      <h1 className="text-2xl font-semibold">Settings</h1>
+    <div className="mx-auto max-w-3xl px-4 py-7 sm:px-8">
+      <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Settings</h1>
+      <p className="mt-1 text-sm text-muted">How ISA drafts tickets for you.</p>
       <form action={saveDraftingSettings} className="mt-5 rounded-xl border border-line bg-surface p-4">
         <h2 className="font-semibold">Before ISA creates a ticket</h2>
         <p className="mt-1 text-sm text-muted">

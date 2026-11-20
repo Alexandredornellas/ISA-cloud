@@ -53,7 +53,7 @@ export function ChatPanel({
   examples = EXAMPLES,
   replyTo = null,
   onClearReply,
-  placeholder = "Ask ISA anything (Enter to send, Shift+Enter for a new line)",
+  placeholder = "Ask ISA anything…",
 }: {
   messages: Message[];
   initial?: string;
@@ -93,11 +93,11 @@ export function ChatPanel({
   }
 
   return (
-    <div className="mt-5 space-y-4">
+    <div className="mt-3 space-y-4">
       {optimistic.length === 0 ? (
         <div className="flex flex-wrap gap-2">
           {examples.map((e) => (
-            <button key={e} onClick={() => send(e)} className="rounded-full border border-line px-3 py-1.5 text-sm text-muted hover:text-ink">
+            <button key={e} onClick={() => send(e)} className="rounded-full border border-line bg-surface px-3 py-1.5 text-sm text-muted hover:border-accent hover:text-ink">
               {e}
             </button>
           ))}
@@ -122,42 +122,51 @@ export function ChatPanel({
               )}
             </li>
           ))}
-          {pending ? <li className="text-sm text-muted">ISA is working…</li> : null}
+          {pending ? (
+            <li className="flex items-center gap-2 text-sm text-muted">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-accent" aria-hidden="true" />
+              ISA is checking…
+            </li>
+          ) : null}
         </ul>
       )}
       {error ? <p className="text-sm text-danger">{error}</p> : null}
-      {replyTo ? (
-        <div className="flex items-center justify-between gap-2 rounded-lg bg-accent-soft px-3 py-2 text-sm text-accent">
-          <span>Changing: {replyTo.title}</span>
-          <button type="button" onClick={onClearReply} aria-label="Stop changing this suggestion" className="px-2 text-base">
-            ×
+      <div className="sticky bottom-0 z-10 -mx-1 space-y-2 bg-gradient-to-t from-bg via-bg to-transparent px-1 pb-3 pt-4">
+        {replyTo ? (
+          <div className="flex items-center justify-between gap-2 rounded-lg bg-accent-soft px-3 py-2 text-sm text-accent">
+            <span className="min-w-0 truncate">Changing: {replyTo.title}</span>
+            <button type="button" onClick={onClearReply} aria-label="Stop changing this suggestion" className="px-2 text-base">
+              ×
+            </button>
+          </div>
+        ) : null}
+        <form
+          ref={formRef}
+          action={(form) => send(String(form.get("text") ?? ""))}
+          className="flex items-end gap-2 rounded-xl border border-line bg-surface p-2 shadow-sm focus-within:border-accent"
+        >
+          <textarea
+            ref={boxRef}
+            name="text"
+            rows={2}
+            defaultValue={initial}
+            autoFocus={!!initial}
+            aria-label="Message ISA"
+            placeholder={replyTo ? 'Tell ISA what to change, e.g. "Keep SCRUM-7 open, just comment on it"' : placeholder}
+            className="max-h-48 flex-1 resize-none bg-transparent px-2 py-1 text-sm outline-none"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                e.currentTarget.form?.requestSubmit();
+              }
+            }}
+          />
+          <button disabled={pending} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-60">
+            Send
           </button>
-        </div>
-      ) : null}
-      <form
-        ref={formRef}
-        action={(form) => send(String(form.get("text") ?? ""))}
-        className="flex gap-2 rounded-xl border border-line bg-surface p-2"
-      >
-        <textarea
-          ref={boxRef}
-          name="text"
-          rows={2}
-          defaultValue={initial}
-          autoFocus={!!initial}
-          placeholder={replyTo ? 'Tell ISA what to change, e.g. "Keep SCRUM-7 open, just comment on it"' : placeholder}
-          className="flex-1 resize-none bg-transparent px-2 py-1 text-sm outline-none"
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              e.currentTarget.form?.requestSubmit();
-            }
-          }}
-        />
-        <button disabled={pending} className="self-end rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-60">
-          Send
-        </button>
-      </form>
+        </form>
+        <p className="px-1 text-[11px] text-muted">Enter to send · Shift+Enter for a new line · Nothing reaches Jira, Slack or email until you approve it.</p>
+      </div>
     </div>
   );
 }
