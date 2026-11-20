@@ -2,7 +2,8 @@ import { notFound } from "next/navigation";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { describeAction, type Action } from "@/lib/plan";
-import { addRule, removeRule } from "./actions";
+import { addRule, redraftItem, removeRule } from "./actions";
+import { SubmitButton } from "@/components/SubmitButton";
 
 export const dynamic = "force-dynamic";
 
@@ -56,7 +57,16 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
     : [];
   const noteByEvent = new Map(links.map((l) => [l.eventId, l.note]));
 
-  type Item = { at: Date; kind: "event" | "action"; title: string; detail: string; url: string | null; failed?: boolean };
+  type Item = {
+    at: Date;
+    kind: "event" | "action";
+    title: string;
+    detail: string;
+    url: string | null;
+    failed?: boolean;
+    eventId?: string;
+    content?: string;
+  };
   const timeline: Item[] = [
     ...evs.map((e) => ({
       at: e.occurredAt,
@@ -64,6 +74,8 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
       title: `${SOURCE_LABEL[e.source] ?? e.source}: ${e.title}`,
       detail: noteByEvent.get(e.id) || (e.author ? `From ${e.author}` : ""),
       url: e.url,
+      eventId: e.id,
+      content: e.content,
     })),
     ...actionRows.map((a) => {
       const result = (a.result ?? {}) as { url?: string };
@@ -174,6 +186,19 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
                   <span className="font-medium">{t.title}</span>
                 )}
                 {t.detail ? <p className={t.failed ? "text-danger" : "text-muted"}>{t.detail}</p> : null}
+                {t.eventId ? (
+                  <details className="mt-1">
+                    <summary className="cursor-pointer text-xs text-muted hover:text-ink">Show full text</summary>
+                    <p className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap rounded-lg border border-line bg-surface p-3 text-sm">
+                      {t.content}
+                    </p>
+                    <form action={redraftItem} className="mt-2">
+                      <input type="hidden" name="projectId" value={project.id} />
+                      <input type="hidden" name="eventId" value={t.eventId} />
+                      <SubmitButton className="border border-line">Draft tickets again from this</SubmitButton>
+                    </form>
+                  </details>
+                ) : null}
               </div>
             </li>
           ))}

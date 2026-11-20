@@ -264,3 +264,29 @@ export async function refileEvent(
   }
   return proposeNewProject(event, target.newProjectName, llm);
 }
+
+/**
+ * Draft a fresh proposal from an item already filed under a project, e.g. after its tickets were
+ * deleted in Jira. Tickets that no longer exist are unlinked first, so ISA proposes them again.
+ */
+export async function redraftFromEvent(
+  eventId: string,
+  projectId: string,
+  llm: StructuredLLM,
+  jira: { issueExists(key: string): Promise<boolean> } | null,
+): Promise<string | null> {
+  const event = await db.query.events.findFirst({ where: eq(schema.events.id, eventId) });
+  if (!event) throw new Error("Item not found");
+  if (jira) {
+    const reqs = await db.query.requirements.findMany({ where: eq(schema.requirements.projectId, projectId) });
+    for (const r of reqs) {
+      if (r.jiraIssueKey && !(await jira.issueExists(r.jiraIssueKey))) {
+        await db
+          .update(schema.requirements)
+          .set({ jiraIssueKey: null, updatedAt: new Date() })
+          .where(eq(schema.requirements.id, r.id));
+      }
+    }
+  }
+  return proposeUpdate(projectId, [event], llm);
+}

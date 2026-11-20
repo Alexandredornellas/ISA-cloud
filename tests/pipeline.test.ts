@@ -199,3 +199,24 @@ describe("cleanSort", () => {
     expect(out.matches.map((x) => x.projectId)).toEqual(["a"]);
   });
 });
+
+describe("redraftFromEvent", () => {
+  it("unlinks tickets deleted in Jira and drafts them again", async () => {
+    const { redraftFromEvent } = await import("@/lib/brain/pipeline");
+    const p = await addProject();
+    const e = await addEvent("Kickoff");
+    await db.insert(schema.requirements).values([
+      { projectId: p.id, title: "MFA", description: "", jiraIssueKey: "SCRUM-1" },
+      { projectId: p.id, title: "Reset", description: "", jiraIssueKey: "SCRUM-2" },
+    ]);
+    const { llm, calls } = scripted({ matches: [], newProject: null, ignore: false, reason: "" }, plan);
+    const jira = { issueExists: async (k: string) => k === "SCRUM-2" };
+
+    const id = await redraftFromEvent(e.id, p.id, llm, jira);
+
+    expect(id).not.toBeNull();
+    const reqs = await db.select().from(schema.requirements);
+    expect(Object.fromEntries(reqs.map((r) => [r.title, r.jiraIssueKey]))).toEqual({ MFA: null, Reset: "SCRUM-2" });
+    expect(calls[0].input).toContain("We need MFA on login");
+  });
+});

@@ -192,6 +192,17 @@ export class JiraClient {
     return match.id;
   }
 
+  /** False when the ticket was deleted (or never existed). */
+  async issueExists(key: string): Promise<boolean> {
+    try {
+      await this.request("GET", `/issue/${encodeURIComponent(key)}?fields=summary`);
+      return true;
+    } catch (err) {
+      if (err instanceof JiraError && err.status === 404) return false;
+      throw err;
+    }
+  }
+
   async checkProject(): Promise<{ key: string; name: string }> {
     const p = await this.request<{ key: string; name: string }>(
       "GET",

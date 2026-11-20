@@ -17,3 +17,14 @@ export async function removeRule(form: FormData) {
   await db.delete(schema.projectRules).where(and(eq(schema.projectRules.id, id), eq(schema.projectRules.projectId, projectId)));
   revalidatePath(`/projects/${projectId}`);
 }
+
+export async function redraftItem(form: FormData) {
+  const { redraftFromEvent } = await import("@/lib/brain/pipeline");
+  const { claudeStructured } = await import("@/lib/brain/llm");
+  const { liveSenders } = await import("@/lib/senders");
+  const projectId = String(form.get("projectId"));
+  await redraftFromEvent(String(form.get("eventId")), projectId, claudeStructured, liveSenders().jira);
+  revalidatePath("/", "layout");
+  const { redirect } = await import("next/navigation");
+  redirect("/");
+}
