@@ -13,7 +13,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <NavLink href="/chat">Ask ISA</NavLink>
           <NavLink href="/projects">Projects</NavLink>
           <NavLink href="/connections">Connections</NavLink>
-          <NavLink href="/settings">Ticket formats</NavLink>
+          <NavLink href="/settings">Settings</NavLink>
         </nav>
       </header>
       <main className="flex-1 pb-16">{children}</main>

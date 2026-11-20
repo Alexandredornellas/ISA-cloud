@@ -75,3 +75,17 @@ describe("project chats", () => {
     await db.delete(schema.projects);
   });
 });
+
+describe("drafting settings", () => {
+  it("defaults to stories under epics, and can be turned off", async () => {
+    const { db, schema } = await import("@/db");
+    const { eq } = await import("drizzle-orm");
+    const { getSettings, saveSettings, settingsText } = await import("@/lib/settings");
+    await db.delete(schema.workerState).where(eq(schema.workerState.key, "settings"));
+    expect(await getSettings()).toEqual({ storiesUnderEpic: true });
+    expect(settingsText(await getSettings())).toContain("every story");
+    await saveSettings({ storiesUnderEpic: false });
+    expect(await getSettings()).toEqual({ storiesUnderEpic: false });
+    await db.delete(schema.workerState).where(eq(schema.workerState.key, "settings"));
+  });
+});

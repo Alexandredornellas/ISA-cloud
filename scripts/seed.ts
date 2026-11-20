@@ -61,6 +61,7 @@ async function main() {
         description:
           "As a customer, I sign in with my email and password.\n\nAcceptance criteria:\n- Email and password fields with validation\n- Clear error on wrong credentials",
         kind: "story",
+        epicRef: null,
       },
       {
         type: "jira_create",
@@ -69,6 +70,7 @@ async function main() {
         description:
           "After a correct password, the customer enters a 6-digit code from an authenticator app.\n\nAcceptance criteria:\n- Code is required to finish sign-in\n- Setup flow shows a QR code",
         kind: "story",
+        epicRef: null,
       },
       {
         type: "jira_create",
@@ -76,6 +78,7 @@ async function main() {
         summary: "Lock account after five failed sign-in attempts",
         description: "Five failed attempts in a row lock the account.\n\nOpen question: how is an account unlocked?",
         kind: "test",
+        epicRef: null,
       },
     ],
     openQuestions: ["How does a locked-out customer unlock their account?"],

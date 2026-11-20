@@ -226,7 +226,12 @@ async function runAction(
   switch (action.type) {
     case "jira_create": {
       const jira = need(senders.jira, "Jira");
-      const issue = await jira.createIssue({ summary: action.summary, description: action.description, ...(await jiraTypeFor(action)) });
+      const issue = await jira.createIssue({
+        summary: action.summary,
+        description: action.description,
+        ...(await jiraTypeFor(action)),
+        parentKey: action.kind === "epic" ? null : epicKeyFor(action.epicRef ?? null, refs),
+      });
       const req = refs.get(action.requirementRef);
       if (req) {
         const [row] = await db
@@ -282,6 +287,15 @@ function issueKeyFor(explicit: string | null, ref: string, refs: Map<string, Req
 function need<T>(sender: T | null, name: string): T {
   if (!sender) throw new Error(`${name} is not connected`);
   return sender;
+}
+
+/** The epic a new ticket goes under: a Jira key as given, or the key of an epic created earlier in the plan. */
+function epicKeyFor(epicRef: string | null, refs: Map<string, RequirementRow>): string | null {
+  if (!epicRef) return null;
+  if (/^[A-Z][A-Z0-9_]+-\d+$/.test(epicRef)) return epicRef;
+  const key = refs.get(epicRef)?.jiraIssueKey;
+  if (!key) throw new Error(`The epic "${refs.get(epicRef)?.title ?? epicRef}" has no Jira ticket yet, so this ticket cannot go under it`);
+  return key;
 }
 
 /** The Jira issue type and label for a ticket kind, from the owner's ticket formats. */

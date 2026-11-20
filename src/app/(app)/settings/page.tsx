@@ -1,16 +1,35 @@
 import { DEFAULT_FORMATS, ticketFormats } from "@/lib/ticket-formats";
 import { SubmitButton } from "@/components/SubmitButton";
-import { resetTicketFormat, saveTicketFormat } from "./actions";
+import { resetTicketFormat, saveDraftingSettings, saveTicketFormat } from "./actions";
+import { getSettings } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 
 const input = "w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm";
 
 export default async function SettingsPage() {
-  const formats = await ticketFormats();
+  const [formats, settings] = await Promise.all([ticketFormats(), getSettings()]);
   return (
     <div>
-      <h1 className="text-2xl font-semibold">Ticket formats</h1>
+      <h1 className="text-2xl font-semibold">Settings</h1>
+      <form action={saveDraftingSettings} className="mt-5 rounded-xl border border-line bg-surface p-4">
+        <label className="flex cursor-pointer items-start gap-3">
+          <input
+            type="checkbox"
+            name="storiesUnderEpic"
+            defaultChecked={settings.storiesUnderEpic}
+            className="mt-1 h-4 w-4 accent-[var(--color-accent)]"
+          />
+          <span>
+            <span className="block font-medium">Stories always under an epic</span>
+            <span className="block text-sm text-muted">
+              Every story, spike, bug and testing task ISA drafts goes under an epic: an existing one that fits, or a new epic she proposes with it.
+            </span>
+          </span>
+        </label>
+        <SubmitButton className="mt-3 border border-line">Save</SubmitButton>
+      </form>
+      <h2 className="mt-8 text-lg font-semibold">Ticket formats</h2>
       <p className="mt-1 text-sm text-muted">
         ISA writes every Jira ticket in these formats. Change the wording, sections or order to match your team&apos;s style.
         Text in &lt;angle brackets&gt; tells ISA what to fill in.

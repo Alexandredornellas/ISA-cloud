@@ -130,6 +130,7 @@ export class JiraClient {
     issueType: string;
     labels?: string[];
     projectKey?: string;
+    parentKey?: string | null;
   }): Promise<JiraIssue> {
     const projectKey = input.projectKey ?? this.cfg.projectKey;
     const issueTypeId = await this.issueTypeId(projectKey, input.issueType);
@@ -140,6 +141,7 @@ export class JiraClient {
         summary: input.summary.slice(0, 254),
         issuetype: { id: issueTypeId },
         description: toAdf(input.description),
+        ...(input.parentKey ? { parent: { key: input.parentKey } } : {}),
         ...(labels.length ? { labels: [...new Set(labels.map((l) => l.trim().replace(/\s+/g, "-")))] } : {}),
       },
     });

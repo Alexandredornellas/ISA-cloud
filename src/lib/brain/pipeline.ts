@@ -7,11 +7,12 @@ import { PROPOSE_SYSTEM, SORT_SYSTEM } from "./prompts";
 import type { StructuredLLM } from "./llm";
 import { formatsText, ticketFormats } from "@/lib/ticket-formats";
 import { relatedTicketsBlock } from "@/lib/jira-research";
+import { getSettings, settingsText } from "@/lib/settings";
 
 /** Context for drafting: the owner's ticket formats, then the project. */
 async function withFormats(context: string, terms: string[] = []): Promise<string> {
   const related = await relatedTicketsBlock(terms);
-  return [formatsText(await ticketFormats()), context, related].filter(Boolean).join("\n\n");
+  return [formatsText(await ticketFormats()), settingsText(await getSettings()), context, related].filter(Boolean).join("\n\n");
 }
 
 /** What to search Jira for: the terms ISA picked when it sorted these items. */

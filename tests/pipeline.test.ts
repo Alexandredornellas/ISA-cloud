@@ -39,7 +39,7 @@ const plan: Plan = {
     { ref: "R1", op: "create", title: "MFA", description: "", status: "proposed", approvedBy: null, reason: "" },
   ],
   actions: [
-    { type: "jira_create", requirementRef: "R1", summary: "MFA", description: "", kind: "story" },
+    { type: "jira_create", requirementRef: "R1", summary: "MFA", description: "", kind: "story", epicRef: null },
     { type: "slack_message", channel: "", recipientLabel: "nobody", threadTs: null, text: "hi" },
   ],
   openQuestions: [],

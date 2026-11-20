@@ -49,8 +49,8 @@ const newProjectPlan: Plan = {
     { ref: "R2", op: "create", title: "MFA code", description: "", status: "proposed", approvedBy: null, reason: "" },
   ],
   actions: [
-    { type: "jira_create", requirementRef: "R1", summary: "Password sign-in", description: "d", kind: "story" },
-    { type: "jira_create", requirementRef: "R2", summary: "MFA code", description: "d", kind: "story" },
+    { type: "jira_create", requirementRef: "R1", summary: "Password sign-in", description: "d", kind: "story", epicRef: null },
+    { type: "jira_create", requirementRef: "R2", summary: "MFA code", description: "d", kind: "story", epicRef: null },
     { type: "jira_comment", requirementRef: "R2", issueKey: null, body: "Waiting on approval" },
   ],
   openQuestions: [],
@@ -177,15 +177,46 @@ describe("ticket formats", () => {
     const p = await addProposal({
       plan: {
         ...newProjectPlan,
-        actions: [{ type: "jira_create", requirementRef: "R1", summary: "Look into SSO", description: "d", kind: "spike" }],
+        actions: [{ type: "jira_create", requirementRef: "R1", summary: "Look into SSO", description: "d", kind: "spike", epicRef: null }],
       },
     });
 
     await executeProposal(p.id, { jira: jira as never, slack: null, email: null });
 
-    expect(created).toEqual([{ summary: "Look into SSO", description: "d", issueType: "Research", labels: ["spike"] }]);
+    expect(created).toEqual([{ summary: "Look into SSO", description: "d", issueType: "Research", labels: ["spike"], parentKey: null }]);
     expect((await ticketFormats()).find((f) => f.kind === "story")?.jiraIssueType).toBe("Story");
     await db.delete(schema.ticketFormats);
+  });
+});
+
+describe("epics", () => {
+  it("creates the epic first and puts the story under it", async () => {
+    const created: { summary: string; parentKey?: string | null }[] = [];
+    let n = 0;
+    const jira = {
+      issueUrl: (k: string) => `https://x/${k}`,
+      createIssue: async (i: { summary: string; parentKey?: string | null }) => {
+        created.push(i);
+        n += 1;
+        return { key: `ISA-${n}`, url: `https://x/ISA-${n}` };
+      },
+    };
+    const p = await addProposal({
+      plan: {
+        ...newProjectPlan,
+        actions: [
+          { type: "jira_create", requirementRef: "R1", summary: "Sign-in", description: "d", kind: "epic", epicRef: null },
+          { type: "jira_create", requirementRef: "R2", summary: "MFA code", description: "d", kind: "story", epicRef: "R1" },
+          { type: "jira_create", requirementRef: "R2", summary: "Old epic story", description: "d", kind: "story", epicRef: "OPS-4" },
+        ],
+      },
+    });
+    await executeProposal(p.id, { jira: jira as never, slack: null, email: null });
+    expect(created.map((c) => [c.summary, c.parentKey])).toEqual([
+      ["Sign-in", null],
+      ["MFA code", "ISA-1"],
+      ["Old epic story", "OPS-4"],
+    ]);
   });
 });
 

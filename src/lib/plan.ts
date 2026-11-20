@@ -29,6 +29,10 @@ const JiraCreate = z.object({
   summary: z.string(),
   description: z.string(),
   kind: z.enum(["story", "epic", "spike", "bug", "test"]).describe("Which ticket format to use"),
+  epicRef: z
+    .string()
+    .nullable()
+    .describe("The epic this ticket goes under: an existing epic's Jira key (e.g. SCRUM-1), or the requirementRef of an epic created earlier in this plan. Null for an epic, or when no epic fits."),
 });
 
 const JiraUpdate = z.object({
@@ -121,7 +125,7 @@ const KIND_LABEL: Record<string, string> = {
 export function describeAction(a: Action): string {
   switch (a.type) {
     case "jira_create":
-      return `Create ${KIND_LABEL[a.kind] ?? "ticket"}: ${a.summary}`;
+      return `Create ${KIND_LABEL[a.kind] ?? "ticket"}: ${a.summary}${a.epicRef && a.kind !== "epic" ? ` (under epic ${a.epicRef})` : ""}`;
     case "jira_update":
       return `Update ${a.issueKey ?? a.requirementRef}${a.summary ? `: ${a.summary}` : ""}`;
     case "jira_comment":

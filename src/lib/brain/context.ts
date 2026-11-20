@@ -19,7 +19,7 @@ export async function projectsContext(): Promise<{ text: string; projectIds: Set
 export async function projectBlock(projectId: string): Promise<string> {
   const p = await db.query.projects.findFirst({ where: eq(schema.projects.id, projectId) });
   if (!p) throw new Error("Project not found");
-  const [reqs, rules] = await Promise.all([
+  const [reqs, rules, tickets] = await Promise.all([
     db.query.requirements.findMany({
       where: and(eq(schema.requirements.projectId, projectId), ne(schema.requirements.status, "dropped")),
       orderBy: asc(schema.requirements.createdAt),
@@ -28,7 +28,9 @@ export async function projectBlock(projectId: string): Promise<string> {
       where: eq(schema.projectRules.projectId, projectId),
       orderBy: asc(schema.projectRules.createdAt),
     }),
+    db.select({ key: schema.jiraTickets.key, issueType: schema.jiraTickets.issueType, epic: schema.jiraTickets.epic }).from(schema.jiraTickets).where(eq(schema.jiraTickets.projectId, projectId)),
   ]);
+  const ticketOf = new Map(tickets.map((t) => [t.key, t]));
   const lines = [
     `<project id="${p.id}">`,
     `Name: ${p.name}`,
@@ -42,7 +44,7 @@ export async function projectBlock(projectId: string): Promise<string> {
           (r) =>
             `- [${r.id}] ${r.title} (status: ${r.status}${r.approvedBy ? `, approved by ${r.approvedBy}` : ""}${
               r.jiraIssueKey
-                ? `, Jira ${r.jiraIssueKey}${r.jiraStatus ? ` (${r.jiraStatus})` : ""} ${jiraBrowseUrl(r.jiraIssueKey)}`
+                ? `, Jira ${r.jiraIssueKey}${ticketOf.get(r.jiraIssueKey)?.issueType ? ` [${ticketOf.get(r.jiraIssueKey)!.issueType}]` : ""}${r.jiraStatus ? ` (${r.jiraStatus})` : ""}${ticketOf.get(r.jiraIssueKey)?.epic ? ` under epic ${ticketOf.get(r.jiraIssueKey)!.epic}` : ""} ${jiraBrowseUrl(r.jiraIssueKey)}`
                 : ", no ticket yet"
             })${r.description ? `\n  ${r.description.replace(/\n/g, "\n  ")}` : ""}`,
         )
