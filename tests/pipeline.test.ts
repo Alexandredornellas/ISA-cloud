@@ -285,3 +285,46 @@ describe("one card per project", () => {
     expect(second.calls.at(-1)!.input).toContain("still waiting for the owner's approval");
   });
 });
+
+describe("a meeting about two projects", () => {
+  it("drafts each project from its own part and keeps other projects' tickets out", async () => {
+    const [jobs, mfa] = await db.insert(schema.projects).values([{ name: "Job categories" }, { name: "MFA login" }]).returning();
+    await db.insert(schema.requirements).values({ projectId: mfa.id, title: "MFA profile toggle", jiraIssueKey: "SCRUM-10" });
+    const [e] = await db
+      .insert(schema.events)
+      .values({ source: "zoom", externalId: crypto.randomUUID(), title: "Weekly", occurredAt: new Date(), content: "Dropdown on the job screen. Also, MFA toggle stays off." })
+      .returning();
+    const leaky: Plan = {
+      ...plan,
+      projectName: null,
+      actions: [
+        { type: "jira_create", requirementRef: "R1", summary: "Job categories dropdown", description: "", kind: "story", epicRef: "SCRUM-10" },
+        { type: "jira_comment", requirementRef: "x", issueKey: "SCRUM-10", body: "MFA toggle stays off" },
+      ],
+    };
+    const { llm, calls } = scripted(
+      {
+        matches: [
+          { projectId: jobs.id, relation: "new", confidence: "high", requirementIds: [], note: "the job categories dropdown" },
+          { projectId: mfa.id, relation: "clarification", confidence: "high", requirementIds: [], note: "the MFA toggle answer" },
+        ],
+        newProject: null,
+        ignore: false,
+        reason: "",
+      },
+      leaky,
+    );
+    await processEvent(e.id, llm);
+
+    const drafts = calls.filter((c) => !c.system.includes("decide where one new item belongs"));
+    expect(drafts[0].input).toContain("What in these items concerns it: the job categories dropdown");
+    expect(drafts[0].input).toContain("- the MFA toggle answer");
+
+    const jobCard = await db.query.proposals.findFirst({ where: eq(schema.proposals.projectId, jobs.id) });
+    expect(jobCard!.plan.actions).toEqual([expect.objectContaining({ type: "jira_create", epicRef: null })]);
+    expect(jobCard!.plan.openQuestions.at(-1)).toContain('belongs to "MFA login"');
+
+    const mfaCard = await db.query.proposals.findFirst({ where: eq(schema.proposals.projectId, mfa.id) });
+    expect(mfaCard!.plan.actions.map((a) => a.type)).toEqual(["jira_create", "jira_comment"]);
+  });
+});

@@ -7,7 +7,7 @@ import { describeAction } from "@/lib/plan";
 import { jiraBrowseUrl } from "@/lib/jira";
 import { eventText, projectBlock } from "./context";
 import type { StructuredLLM } from "./llm";
-import { processEvent, redraftProject, refileEvent, reviseProposal } from "./pipeline";
+import { alsoFileEvent, processEvent, redraftProject, refileEvent, reviseProposal } from "./pipeline";
 import { syncJira, type JiraReader } from "@/lib/jira-sync";
 import { describeChange, ticketHistory } from "@/lib/jira-track";
 import { researchJira, type JiraSearcher } from "@/lib/jira-research";
@@ -231,6 +231,20 @@ export function chatTools(llm: StructuredLLM, jira: JiraReader | null = null, se
         const target = projectId ? { projectId } : { newProjectName: newProjectName || "New project" };
         const proposalId = await refileEvent(eventId, target, llm);
         return proposalId ? `Moved. New proposal ${proposalId} is in the inbox.` : "Moved. It changes nothing in that project.";
+      },
+    }),
+    tool({
+      name: "also_file_item",
+      description:
+        "File an item under one more project while keeping it where it is, when it covered several topics (e.g. a meeting about two projects). Drafts a proposal for that project from only the part about it.",
+      inputSchema: z.object({
+        eventId: id,
+        projectId: id,
+        about: z.string().describe("Which part of the item concerns this project, in one sentence"),
+      }),
+      run: async ({ eventId, projectId, about }) => {
+        const proposalId = await alsoFileEvent(eventId, projectId, about, llm);
+        return proposalId ? `Filed there too. Proposal ${proposalId} is waiting in that project's channel.` : "Filed there too. It changes nothing in that project.";
       },
     }),
     tool({

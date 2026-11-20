@@ -8,10 +8,11 @@ import type { StructuredLLM } from "./llm";
 import { formatsText, ticketFormats } from "@/lib/ticket-formats";
 import { relatedTicketsBlock } from "@/lib/jira-research";
 import { getSettings, settingsText } from "@/lib/settings";
+import { keepToProject, owners } from "@/lib/ownership";
 
 /** Context for drafting: the owner's ticket formats, then the project. */
-async function withFormats(context: string, terms: string[] = []): Promise<string> {
-  const related = await relatedTicketsBlock(terms);
+async function withFormats(context: string, terms: string[] = [], projectId: string | null = null): Promise<string> {
+  const related = await relatedTicketsBlock(terms, projectId);
   return [formatsText(await ticketFormats()), settingsText(await getSettings()), context, related].filter(Boolean).join("\n\n");
 }
 
@@ -56,7 +57,8 @@ export async function processEvent(eventId: string, llm: StructuredLLM): Promise
       if (match.confidence === "high") {
         await linkEvent(event.id, match.projectId, match.relation, match.note);
         if (match.relation !== "context") {
-          const id = await proposeUpdate(match.projectId, [event], llm, terms);
+          const others = sort.matches.filter((m) => m.projectId !== match.projectId);
+          const id = await proposeUpdate(match.projectId, [event], llm, terms, focusText(match.note, others.map((m) => m.note)));
           if (id) proposalIds.push(id);
         }
       } else {
@@ -108,12 +110,32 @@ async function linkEvent(eventId: string, projectId: string, relation: string, n
     });
 }
 
+/**
+ * What part of an item a project's draft should use. A meeting or email can cover several
+ * projects; each project's draft must ignore the parts that belong to the others.
+ */
+export function focusText(note: string, otherNotes: string[] = []): string {
+  return [
+    `Draft only for this project. What in these items concerns it: ${note}`,
+    otherNotes.length
+      ? `Other parts of the same items concern other projects and are drafted there; ignore them completely:\n${otherNotes.map((n) => `- ${n}`).join("\n")}`
+      : "If parts of the items are about other work, ignore them.",
+    "Never update, comment on or close a ticket that is not this project's.",
+  ].join("\n");
+}
+
+/** Keep the draft to this project, dropping steps on other projects' tickets. */
+async function ownPlan(plan: Plan, projectId: string): Promise<Plan> {
+  return keepToProject(plan, projectId, await owners()).plan;
+}
+
 /** Draft an update for an existing project from new events. Returns null when nothing changes. */
 export async function proposeUpdate(
   projectId: string,
   events: EventRow[],
   llm: StructuredLLM,
   terms: string[] = termsOf(events),
+  focus: string = focusText("the parts about this project's work"),
 ): Promise<string | null> {
   const project = await db.query.projects.findFirst({ where: eq(schema.projects.id, projectId) });
   if (!project) throw new Error("Project not found");
@@ -128,16 +150,16 @@ export async function proposeUpdate(
     ),
     orderBy: desc(schema.proposals.createdAt),
   });
-  if (waiting) return mergeIntoWaiting(waiting, projectId, events, llm, terms);
+  if (waiting) return mergeIntoWaiting(waiting, projectId, events, llm, terms, focus);
 
   const plan = await llm({
     system: PROPOSE_SYSTEM,
-    context: await withFormats(`The project:\n${await projectBlock(projectId)}`, terms),
-    input: `New items:\n${events.map(eventText).join("\n\n")}`,
+    context: await withFormats(`The project:\n${await projectBlock(projectId)}`, terms, projectId),
+    input: `New items:\n${events.map(eventText).join("\n\n")}\n\n${focus}`,
     schema: PlanSchema,
     effort: "high",
   });
-  const cleaned = cleanPlan({ ...plan, projectName: null });
+  const cleaned = await ownPlan(cleanPlan({ ...plan, projectName: null }), projectId);
   if (cleaned.requirementChanges.length === 0 && cleaned.actions.length === 0) return null;
   const [row] = await db
     .insert(schema.proposals)
@@ -159,6 +181,7 @@ async function mergeIntoWaiting(
   events: EventRow[],
   llm: StructuredLLM,
   terms: string[],
+  focus: string,
 ): Promise<string> {
   const fresh = events.filter((e) => !waiting.eventIds.includes(e.id));
   if (!fresh.length) return waiting.id;
@@ -167,18 +190,20 @@ async function mergeIntoWaiting(
     : [];
   const plan = await llm({
     system: PROPOSE_SYSTEM,
-    context: await withFormats(`The project:\n${await projectBlock(projectId)}`, terms),
+    context: await withFormats(`The project:\n${await projectBlock(projectId)}`, terms, projectId),
     input: [
       `Items you already drafted from:\n${earlier.map(eventText).join("\n\n") || "(none)"}`,
       `Your draft, still waiting for the owner's approval (nothing in it exists in Jira yet):\n${JSON.stringify(waiting.plan, null, 2)}`,
       `New items:\n${fresh.map(eventText).join("\n\n")}`,
       "Return the whole updated draft with the new items merged in. Keep one epic and one ticket per piece of work: extend or correct what the draft already has instead of adding duplicates. Drop open questions the new items answer. Start the summary with what the new items changed.",
+      focus,
     ].join("\n\n"),
     schema: PlanSchema,
     effort: "high",
   });
-  const cleaned = cleanPlan(
-    waiting.kind === "new_project" ? { ...plan, projectName: plan.projectName || waiting.plan.projectName } : { ...plan, projectName: null },
+  const cleaned = await ownPlan(
+    cleanPlan(waiting.kind === "new_project" ? { ...plan, projectName: plan.projectName || waiting.plan.projectName } : { ...plan, projectName: null }),
+    projectId,
   );
   await db
     .update(schema.proposals)
@@ -340,6 +365,19 @@ export async function refileEvent(
     return proposeUpdate(target.projectId, [event], llm);
   }
   return proposeNewProject(event, target.newProjectName, llm);
+}
+
+/**
+ * File an item under one more project, keeping its other projects: for a meeting or email that
+ * covered several topics. Drafts only the part about that project.
+ */
+export async function alsoFileEvent(eventId: string, projectId: string, about: string, llm: StructuredLLM): Promise<string | null> {
+  const event = await db.query.events.findFirst({ where: eq(schema.events.id, eventId) });
+  if (!event) throw new Error("Item not found");
+  const others = await db.select({ note: schema.eventProjects.note, projectId: schema.eventProjects.projectId }).from(schema.eventProjects).where(eq(schema.eventProjects.eventId, eventId));
+  await linkEvent(eventId, projectId, "change", about);
+  const otherNotes = others.filter((o) => o.projectId !== projectId).map((o) => o.note ?? "").filter(Boolean);
+  return proposeUpdate(projectId, [event], llm, termsOf([event]), focusText(about, otherNotes));
 }
 
 /**

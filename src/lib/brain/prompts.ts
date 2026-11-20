@@ -7,7 +7,7 @@ export const SORT_SYSTEM = `${ROLE}
 Task: decide where one new item belongs.
 
 You receive the list of current projects (with their requirements, people and the owner's rules) and one new item. Decide:
-- matches: each existing project the item concerns. One item can concern several projects, for example a meeting that changes two of them. For each, say how it relates:
+- matches: each existing project the item concerns. One item can concern several projects: a meeting, email or thread often covers more than one topic, and an answer to a question asked earlier about another project counts too. Match every project the item touches, not only the main topic. For each, say how it relates:
   - "new": it adds a requirement to that project
   - "clarification": it adds detail to an existing requirement without changing what was agreed
   - "approval": someone approves or confirms a requirement
@@ -20,6 +20,7 @@ You receive the list of current projects (with their requirements, people and th
 - searchTerms: unless ignored, 2 or 3 short terms (one to three words each) to search Jira for tickets about the same topic. Include a synonym or the technical name, e.g. "MFA", "two-factor", "OTP".
 
 Rules:
+- note, per match: which part of the item concerns that project, in one sentence specific enough to tell it apart from the other matches (e.g. "Bruno's answer that the MFA profile toggle stays off by default"). Each project's draft is written from its note only.
 - Use only project ids and requirement ids that appear in the list.
 - Follow the owner's rules for each project.
 - reason: one or two sentences the owner can read to understand your decision.`;
