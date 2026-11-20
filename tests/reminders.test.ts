@@ -34,12 +34,19 @@ describe("reminders from items", () => {
         ignore: true,
         searchTerms: [],
         reason: "",
-        commitments: [{ what: "Send the MFA mockups", forWhom: "Ana", due: "2026-11-23", dueText: "by Monday", quote: "I'll send Ana the mockups by Monday", projectId: project.id }],
+        commitments: [
+          { what: "Send the MFA mockups", owedBy: "", forWhom: "Ana", due: "2026-11-23", dueText: "by Monday", quote: "I'll send Ana the mockups by Monday", projectId: project.id },
+          { what: "Confirm the schema", owedBy: "Weslei", forWhom: "", due: "", dueText: "", quote: "I'll confirm the schema", projectId: "" },
+        ],
       }) as never;
     await processEvent(e.id, llm);
     await processEvent(e.id, llm);
-    const open = await openReminders();
-    expect(open).toHaveLength(1);
+    const all = await openReminders();
+    expect(all.map((r) => [r.text, r.direction, r.person])).toEqual([
+      ["Send the MFA mockups", "mine", "Ana"],
+      ["Confirm the schema", "theirs", "Weslei"],
+    ]);
+    const open = all.filter((r) => r.direction === "mine");
     expect(open[0]).toMatchObject({ text: "Send the MFA mockups", person: "Ana", dueText: "by Monday", projectName: "MFA login", source: { title: "Weekly" } });
     expect(await openReminders(project.id)).toHaveLength(1);
   });

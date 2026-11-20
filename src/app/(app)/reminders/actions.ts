@@ -18,6 +18,7 @@ export async function newReminder(form: FormData) {
     person: String(form.get("person") ?? ""),
     due: String(form.get("due") ?? "") || null,
     projectId: String(form.get("projectId") ?? "") || null,
+    direction: form.get("direction") === "theirs" ? "theirs" : "mine",
   });
   revalidatePath("/", "layout");
 }

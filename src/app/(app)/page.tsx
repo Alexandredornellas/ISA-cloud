@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { asc, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { chatTranscript } from "@/lib/brain/chat";
@@ -8,6 +9,8 @@ import { Workspace, type PanelTab } from "@/components/Workspace";
 import { ActivityFeed } from "@/components/ActivityFeed";
 import { PeopleAndRules, RequirementList } from "@/components/ProjectPanels";
 import { clearChatMessages } from "./chat/actions";
+import { portfolio, projectHealth } from "@/lib/portfolio";
+import { Overview } from "@/components/Overview";
 import { openReminders } from "@/lib/reminders";
 import { ReminderList } from "@/components/ReminderList";
 
@@ -23,6 +26,10 @@ const PROJECT_EXAMPLES = [
 export default async function HomePage({ searchParams }: PageProps<"/">) {
   const { c, ask } = await searchParams;
   const all = await channels();
+  if (!c && typeof ask !== "string") {
+    const [{ projects, reminders }, feed] = await Promise.all([portfolio(), activity(null, 12)]);
+    return <Overview projects={projects} reminders={reminders} feed={feed} generalCount={all[0].count} />;
+  }
   const current = (typeof c === "string" && all.find((ch) => ch.id === c)) || all[0];
   const projectId = current.id;
 
@@ -47,6 +54,7 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
         db.query.projectRules.findMany({ where: eq(schema.projectRules.projectId, projectId) }),
       ])
     : [[], []];
+  const health = projectId ? await projectHealth(projectId) : null;
   const open = requirements.filter((r) => r.status !== "done" && r.status !== "dropped").length;
   const tickets = requirements.filter((r) => r.jiraIssueKey).length;
 
@@ -65,6 +73,11 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
     <div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{project ? project.name : "Ask ISA"}</h1>
+        {project ? (
+          <Link href={`/report?c=${project.id}`} className="rounded-md px-2 py-1 text-xs text-muted hover:bg-hover hover:text-ink">
+            Status report
+          </Link>
+        ) : null}
         {chat.length ? (
           <form action={clearChatMessages}>
             {projectId ? <input type="hidden" name="projectId" value={projectId} /> : null}
@@ -79,6 +92,7 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
             <span className={`rounded-full px-2 py-0.5 ${notes.length ? "bg-warn/15 font-medium text-warn" : "bg-ok/15 text-ok"}`}>
               {notes.length ? `${notes.length} need${notes.length === 1 ? "s" : ""} you` : "Up to date"}
             </span>
+            {health?.status === "at_risk" ? <span className="rounded-full bg-danger/15 px-2 py-0.5 font-medium text-danger">At risk</span> : null}
             <span className="rounded-full bg-hover px-2 py-0.5 text-muted">
               {open} open requirement{open === 1 ? "" : "s"}
             </span>
@@ -86,9 +100,19 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
               {tickets} Jira ticket{tickets === 1 ? "" : "s"}
             </span>
           </p>
+          {health?.risks.length ? (
+            <ul className="mt-3 space-y-1 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-sm">
+              {health.risks.map((r, i) => (
+                <li key={i} className="flex gap-2">
+                  <span aria-hidden="true" className="text-danger">●</span>
+                  <span>{r.text}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </>
       ) : (
-        <p className="mt-1 text-sm text-muted">Ask anything about your projects, meetings, email, Slack or Jira. Items ISA can&apos;t place in a project wait here.</p>
+        <p className="mt-1 text-sm text-muted">Ask anything across your projects: status, risks, who owes what, what was decided and why. Items ISA can&apos;t place in a project wait here.</p>
       )}
     </div>
   );

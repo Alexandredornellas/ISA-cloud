@@ -33,7 +33,8 @@ export async function saveCommitments(eventId: string, commitments: Commitment[]
       eventId,
       projectId: c.projectId && projectIds.has(c.projectId) ? c.projectId : null,
       text: c.what.trim().slice(0, 300),
-      person: c.forWhom?.trim() || null,
+      direction: c.owedBy?.trim() ? "theirs" : "mine",
+      person: c.owedBy?.trim() || c.forWhom?.trim() || null,
       due: dueFrom(c.due),
       dueText: c.dueText?.trim() || null,
       quote: c.quote.trim().slice(0, 500) || null,
@@ -42,12 +43,12 @@ export async function saveCommitments(eventId: string, commitments: Commitment[]
   return rows.length;
 }
 
-export async function addReminder(input: { text: string; person?: string | null; due?: string | null; projectId?: string | null }) {
+export async function addReminder(input: { text: string; person?: string | null; due?: string | null; projectId?: string | null; direction?: "mine" | "theirs" }) {
   const text = input.text.trim();
   if (!text) throw new Error("Say what to do");
   const [row] = await db
     .insert(schema.reminders)
-    .values({ text: text.slice(0, 300), person: input.person?.trim() || null, due: dueFrom(input.due), projectId: input.projectId || null })
+    .values({ text: text.slice(0, 300), direction: input.direction === "theirs" && input.person?.trim() ? "theirs" : "mine", person: input.person?.trim() || null, due: dueFrom(input.due), projectId: input.projectId || null })
     .returning();
   return row;
 }
@@ -112,9 +113,12 @@ export function bucketOf(r: Pick<Reminder, "due">, now = new Date()): Bucket {
   return due <= dayKey(new Date(now.getTime() + 7 * 86400000)) ? "week" : "later";
 }
 
-/** How many open reminders are overdue or due today: the number the sidebar shows. */
+/** How many of the owner's open reminders are overdue or due today: the number the sidebar shows. */
 export async function dueCount(now = new Date()): Promise<number> {
-  const rows = await db.select({ due: schema.reminders.due }).from(schema.reminders).where(eq(schema.reminders.status, "open"));
+  const rows = await db
+    .select({ due: schema.reminders.due })
+    .from(schema.reminders)
+    .where(and(eq(schema.reminders.status, "open"), eq(schema.reminders.direction, "mine")));
   return rows.filter((r) => ["overdue", "today"].includes(bucketOf(r, now))).length;
 }
 
@@ -124,7 +128,7 @@ export function remindersText(rows: ReminderRow[], now = new Date()): string {
   return rows
     .map(
       (r) =>
-        `- [${r.id}] ${r.text}${r.person ? ` (for ${r.person})` : ""}${r.due ? ` due ${dayKey(r.due)}${bucketOf(r, now) === "overdue" ? " OVERDUE" : ""}` : " no date"}${r.projectName ? ` · project ${r.projectName}` : ""}${r.source ? ` · from ${r.source.title}` : ""}`,
+        `- [${r.id}] ${r.direction === "theirs" ? `WAITING ON ${r.person ?? "someone"}: ` : ""}${r.text}${r.person && r.direction === "mine" ? ` (for ${r.person})` : ""}${r.due ? ` due ${dayKey(r.due)}${bucketOf(r, now) === "overdue" ? " OVERDUE" : ""}` : " no date"}${r.projectName ? ` · project ${r.projectName}` : ""}${r.source ? ` · from ${r.source.title}` : ""}`,
     )
     .join("\n");
 }

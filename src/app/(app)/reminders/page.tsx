@@ -17,14 +17,18 @@ export default async function RemindersPage() {
   ]);
   return (
     <div className="mx-auto max-w-3xl px-4 py-7 sm:px-8">
-      <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Reminders</h1>
+      <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Who owes what</h1>
       <p className="mt-1 text-sm text-muted">
-        What you promised to send or do, for whom and by when. ISA picks these up from your meetings, email and Slack. They are only for you: ISA never sends anything from here.
+        What you promised, and what others promised you, across all projects. ISA picks these up from meetings, email and Slack. They are only for you: ISA never sends anything from here.
       </p>
 
-      <form action={newReminder} className="mt-5 grid gap-2 rounded-xl border border-line bg-surface p-3 sm:grid-cols-[minmax(0,1fr)_150px_150px_auto]">
-        <input name="text" required aria-label="What to do" placeholder="Remind me to… e.g. Send the API docs" className={`${input} sm:col-span-4`} />
-        <input name="person" aria-label="For whom" placeholder="For whom (optional)" className={input} />
+      <form action={newReminder} className="mt-5 grid gap-2 rounded-xl border border-line bg-surface p-3 sm:grid-cols-[140px_minmax(0,1fr)_150px_150px_auto]">
+        <input name="text" required aria-label="What to do" placeholder="Remind me to… e.g. Send the API docs" className={`${input} sm:col-span-5`} />
+        <select name="direction" aria-label="Who owes it" className={input} defaultValue="mine">
+          <option value="mine">I owe it to…</option>
+          <option value="theirs">They owe me…</option>
+        </select>
+        <input name="person" aria-label="Person" placeholder="Person (optional)" className={input} />
         <input name="due" type="date" aria-label="Due date" className={input} />
         <select name="projectId" aria-label="Project" className={input} defaultValue="">
           <option value="">No project</option>
@@ -37,9 +41,14 @@ export default async function RemindersPage() {
         <SubmitButton className="bg-accent text-white">Add</SubmitButton>
       </form>
 
-      <div className="mt-6">
-        <ReminderList reminders={open} />
-      </div>
+      <section className="mt-7">
+        <h2 className="mb-3 text-sm font-semibold">You owe · {open.filter((r) => r.direction === "mine").length}</h2>
+        <ReminderList reminders={open.filter((r) => r.direction === "mine")} empty="Nothing you owe right now." />
+      </section>
+      <section className="mt-8">
+        <h2 className="mb-3 text-sm font-semibold">Waiting on others · {open.filter((r) => r.direction === "theirs").length}</h2>
+        <ReminderList reminders={open.filter((r) => r.direction === "theirs")} empty="Nobody owes you anything right now. When someone promises you something, ISA tracks it here so you can follow up." />
+      </section>
 
       {done.length ? (
         <details className="mt-8">

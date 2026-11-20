@@ -304,7 +304,9 @@ export const reminders = pgTable(
     eventId: uuid("event_id").references(() => events.id, { onDelete: "set null" }),
     // What to send or do, e.g. "Send the MFA mockups".
     text: text("text").notNull(),
-    // Who it is for, e.g. "Ana Costa".
+    // "mine": the owner owes it to person. "theirs": person owes it to the owner (a waiting-on).
+    direction: text("direction").notNull().default("mine"),
+    // Who it is for (mine) or who owes it (theirs), e.g. "Ana Costa".
     person: text("person"),
     due: timestamp("due", { withTimezone: true }),
     // The deadline as said, e.g. "by Friday".

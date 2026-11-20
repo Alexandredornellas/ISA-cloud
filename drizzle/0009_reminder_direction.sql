@@ -1,0 +1,1 @@
+ALTER TABLE "reminders" ADD COLUMN "direction" text DEFAULT 'mine' NOT NULL;

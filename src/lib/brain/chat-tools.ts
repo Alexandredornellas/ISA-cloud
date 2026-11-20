@@ -11,6 +11,7 @@ import { alsoFileEvent, processEvent, redraftProject, refileEvent, reviseProposa
 import { syncJira, type JiraReader } from "@/lib/jira-sync";
 import { describeChange, ticketHistory } from "@/lib/jira-track";
 import { researchJira, type JiraSearcher } from "@/lib/jira-research";
+import { portfolio, portfolioText } from "@/lib/portfolio";
 import { addReminder, dayKey, openReminders, remindersText, setReminderStatus } from "@/lib/reminders";
 
 export type ChatTool = {
@@ -249,18 +250,30 @@ export function chatTools(llm: StructuredLLM, jira: JiraReader | null = null, se
       },
     }),
     tool({
+      name: "portfolio_status",
+      description:
+        "Health of all the owner's projects at once: which are at risk or need attention and why (Jira drifting from what was agreed, overdue promises, failed or long-waiting suggestions), plus who owes what. Use for 'how are my projects?', 'what's at risk?', and before writing a status report.",
+      inputSchema: z.object({}),
+      run: async () => {
+        const { projects, reminders } = await portfolio();
+        return portfolioText(projects, reminders);
+      },
+    }),
+    tool({
       name: "list_reminders",
       description:
-        "The owner's open reminders: what they promised to send or do, for whom and by when, picked up from meetings, email and Slack. Use for 'what do I owe?', 'what's due this week?', 'what did I promise Ana?'.",
+        "Open reminders: what the owner promised to send or do (for whom, by when) and what others owe the owner (WAITING ON), picked up from meetings, email and Slack. Use for 'what do I owe?', 'who owes me what?', 'what's due this week?'.",
       inputSchema: z.object({ projectId: z.string().nullable().describe("Only this project's reminders, or null for all") }),
       run: async ({ projectId }) => `Today is ${dayKey(new Date())}.\n${remindersText(await openReminders(projectId))}`,
     }),
     tool({
       name: "add_reminder",
-      description: "Add a reminder when the owner asks ('remind me to send Ana the specs by Friday'). Internal to ISA: it contacts no one.",
+      description:
+        "Add a reminder when the owner asks ('remind me to send Ana the specs by Friday'), or a waiting-on ('Bruno owes me the API docs by Monday'). Internal to ISA: it contacts no one.",
       inputSchema: z.object({
         text: z.string().describe("What to send or do, starting with a verb"),
-        person: z.string().nullable().describe("Who it is for"),
+        direction: z.enum(["mine", "theirs"]).describe("mine: the owner owes it; theirs: person owes it to the owner"),
+        person: z.string().nullable().describe("Who it is for (mine) or who owes it (theirs)"),
         due: z.string().nullable().describe("Deadline as YYYY-MM-DD, resolved from today's date; null when none"),
         projectId: z.string().nullable(),
       }),

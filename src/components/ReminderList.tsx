@@ -17,9 +17,19 @@ function dueLabel(r: ReminderRow) {
 }
 
 /** Open reminders grouped by when they are due, each with who it is for and where it came from. */
-export function ReminderList({ reminders, showProject = true, compact = false }: { reminders: ReminderRow[]; showProject?: boolean; compact?: boolean }) {
+export function ReminderList({
+  reminders,
+  showProject = true,
+  compact = false,
+  empty = "Nothing to remember. When someone promises to send something in a meeting, email or Slack, ISA adds it here.",
+}: {
+  reminders: ReminderRow[];
+  showProject?: boolean;
+  compact?: boolean;
+  empty?: string;
+}) {
   if (!reminders.length) {
-    return <p className="text-sm text-muted">Nothing to remember. When you promise to send something in a meeting, email or Slack, ISA adds it here.</p>;
+    return <p className="text-sm text-muted">{empty}</p>;
   }
   return (
     <div className="space-y-5">
@@ -38,15 +48,16 @@ export function ReminderList({ reminders, showProject = true, compact = false }:
                     <input type="hidden" name="id" value={r.id} />
                     <input type="hidden" name="status" value="done" />
                     <button
-                      aria-label={`Mark done: ${r.text}`}
-                      title="Mark done"
+                      aria-label={`${r.direction === "theirs" ? "Received" : "Mark done"}: ${r.text}`}
+                      title={r.direction === "theirs" ? "Received" : "Mark done"}
                       className="mt-0.5 h-[18px] w-[18px] flex-none rounded-full border-2 border-line hover:border-ok hover:bg-ok/15"
                     />
                   </form>
                   <div className="min-w-0 flex-1 text-sm">
                     <p className="font-medium">
+                      {r.direction === "theirs" ? <span className="mr-1.5 rounded bg-accent-soft px-1.5 py-0.5 text-xs font-medium text-accent">Waiting on {r.person ?? "someone"}</span> : null}
                       {r.text}
-                      {r.person ? <span className="font-normal text-muted"> · for {r.person}</span> : null}
+                      {r.person && r.direction === "mine" ? <span className="font-normal text-muted"> · for {r.person}</span> : null}
                     </p>
                     <p className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-muted">
                       {r.due ? <span className={b.id === "overdue" ? "font-medium text-danger" : b.id === "today" ? "font-medium text-warn" : ""}>Due {dueLabel(r)}</span> : null}

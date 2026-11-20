@@ -24,11 +24,12 @@ export function AppShell({ channels, dueReminders, children }: { channels: Chann
       <Link href="/" className="mb-3 flex items-center gap-2 px-2 pt-1">
         <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-accent text-sm font-bold text-white">I</span>
         <span className="font-semibold tracking-tight">ISA</span>
-        <span className="text-xs text-muted">your analyst</span>
+        <span className="text-xs text-muted">your project assistant</span>
       </Link>
 
-      <Item href="/" icon="chat" label="Ask ISA" count={general?.count ?? 0} match="general" />
-      <Item href="/reminders" icon="bell" label="Reminders" count={dueReminders} match="/reminders" />
+      <Item href="/" icon="grid" label="Overview" count={0} match="overview" />
+      <Item href="/?c=general" icon="chat" label="Ask ISA" count={general?.count ?? 0} match="general" />
+      <Item href="/reminders" icon="bell" label="Who owes what" count={dueReminders} match="/reminders" />
 
       <p className="mt-4 flex items-center justify-between px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
         <span>Projects</span>
@@ -52,6 +53,7 @@ export function AppShell({ channels, dueReminders, children }: { channels: Chann
       </div>
 
       <div className="mt-2 space-y-0.5 border-t border-line pt-2">
+        <Item href="/report" icon="doc" label="Status report" count={0} match="/report" />
         <Item href="/meetings" icon="video" label="Join a meeting" count={0} match="/meetings" />
         <Item href="/connections" icon="plug" label="Connections" count={0} match="/connections" />
         <Item href="/settings" icon="gear" label="Settings" count={0} match="/settings" />
@@ -103,7 +105,7 @@ function Item(props: ItemProps) {
 function ActiveItem(props: ItemProps) {
   const path = usePathname();
   const params = useSearchParams();
-  const active = props.match.startsWith("/") ? path.startsWith(props.match) : path === "/" && (params.get("c") ?? "general") === props.match;
+  const active = props.match.startsWith("/") ? path.startsWith(props.match) : path === "/" && (params.get("c") ?? (params.get("ask") ? "general" : "overview")) === props.match;
   return <ItemLink {...props} active={active} />;
 }
 

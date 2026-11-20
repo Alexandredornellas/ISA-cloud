@@ -156,6 +156,8 @@ export const SortMatchSchema = z.object({
 
 const CommitmentSchema = z.object({
   what: z.string(),
+  /** Null when the owner owes it; otherwise who owes it to the owner. */
+  owedBy: z.string().nullable().optional(),
   forWhom: z.string().nullable(),
   due: z.string().nullable(),
   dueText: z.string().nullable(),
@@ -184,7 +186,8 @@ export const SortDraftSchema = SortResultSchema.extend({
   commitments: z
     .array(
       z.object({
-        what: z.string().describe("What the owner must send or do, starting with a verb, e.g. 'Send the MFA mockups'"),
+        what: z.string().describe("What must be sent or done, starting with a verb, e.g. 'Send the MFA mockups'"),
+        owedBy: z.string().describe('"" when the owner must do it; otherwise the name of the person who promised it to the owner'),
         forWhom: z.string().describe('Who it is for, by name, or ""'),
         due: z.string().describe('Deadline as YYYY-MM-DD, resolved from the item\'s date, or "" when none was said'),
         dueText: z.string().describe('The deadline in the item\'s words, e.g. "by Friday", or ""'),
@@ -192,7 +195,7 @@ export const SortDraftSchema = SortResultSchema.extend({
         projectId: z.string().describe('The project it concerns, from the list, or ""'),
       }),
     )
-    .describe("Things the owner promised or was asked to send or do; empty when none"),
+    .describe("Things the owner promised or was asked to send or do, and things others promised the owner; empty when none"),
 });
 
 export function fromSortDraft(d: z.infer<typeof SortDraftSchema>): SortResult {
@@ -200,6 +203,7 @@ export function fromSortDraft(d: z.infer<typeof SortDraftSchema>): SortResult {
     ...d,
     commitments: (d.commitments ?? []).map((c) => ({
       what: c.what,
+      owedBy: c.owedBy?.trim() || null,
       forWhom: c.forWhom.trim() || null,
       due: c.due.trim() || null,
       dueText: c.dueText.trim() || null,
