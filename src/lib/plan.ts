@@ -32,7 +32,7 @@ export const TicketDetailsSchema = z.object({
 });
 export type TicketDetails = z.infer<typeof TicketDetailsSchema>;
 
-const JiraCreate = z.object({
+const JiraCreateBase = z.object({
   type: z.literal("jira_create"),
   requirementRef: z.string(),
   summary: z.string(),
@@ -42,8 +42,9 @@ const JiraCreate = z.object({
     .string()
     .nullable()
     .describe("The epic this ticket goes under: an existing epic's Jira key (e.g. SCRUM-1), or the requirementRef of an epic created earlier in this plan. Null for an epic, or when no epic fits."),
-  details: TicketDetailsSchema.nullable().optional().describe("Only when the owner's settings ask for ticket details; otherwise null"),
 });
+
+const JiraCreate = JiraCreateBase.extend({ details: TicketDetailsSchema.nullable().optional() });
 
 const JiraUpdate = z.object({
   type: z.literal("jira_update"),
@@ -102,12 +103,64 @@ export const PlanSchema = z.object({
 });
 export type Plan = z.infer<typeof PlanSchema>;
 
+// What Claude fills in when drafting. Structured outputs compile the schema into a grammar with a
+// size limit, and every nullable or optional field adds to it; so the draft schema uses empty
+// values instead of null where it can, and has ticket details only when the owner asks for them.
+const DraftTicketDetails = z.object({
+  sprint: z.string().describe('Name of the open sprint, or "" for none'),
+  storyPoints: z.number().describe("Estimate, or 0 for none"),
+  links: z.array(z.string()).describe("Jira keys of related existing tickets"),
+  extra: z.array(z.object({ name: z.string(), value: z.string() })).describe("The owner's own fields, by name"),
+});
+
+const draftSchemas = (withDetails: boolean) =>
+  PlanSchema.extend({
+    actions: z.array(
+      z.union([
+        withDetails ? JiraCreateBase.extend({ details: DraftTicketDetails.describe("For epics, leave every field empty") }) : JiraCreateBase,
+        JiraUpdate,
+        JiraComment,
+        JiraClose,
+        SlackMessage,
+        Email,
+      ]),
+    ),
+  });
+
+export const DraftSchema = draftSchemas(false);
+export const DraftWithDetailsSchema = draftSchemas(true);
+
+/** A draft as ISA stores it: empty ticket details become null. */
+export function fromDraft(draft: z.infer<typeof DraftWithDetailsSchema> | z.infer<typeof DraftSchema>): Plan {
+  return {
+    ...draft,
+    actions: draft.actions.map((a): Action => {
+      if (a.type !== "jira_create" || !("details" in a) || !a.details) return a as Action;
+      const d = a.details as z.infer<typeof DraftTicketDetails>;
+      if (a.kind === "epic") return { ...a, details: null };
+      return {
+        ...a,
+        details: { sprint: d.sprint.trim() || null, storyPoints: d.storyPoints > 0 ? d.storyPoints : null, links: d.links, extra: d.extra },
+      };
+    }),
+  };
+}
+
 export const SortMatchSchema = z.object({
   projectId: z.string(),
   relation: z.enum(["new", "clarification", "approval", "change", "context"]),
   confidence: z.enum(["high", "medium", "low"]),
   requirementIds: z.array(z.string()),
   note: z.string().describe("What in this item concerns the project, in one sentence"),
+});
+
+const CommitmentSchema = z.object({
+  what: z.string(),
+  forWhom: z.string().nullable(),
+  due: z.string().nullable(),
+  dueText: z.string().nullable(),
+  quote: z.string(),
+  projectId: z.string().nullable(),
 });
 
 export const SortResultSchema = z.object({
@@ -120,23 +173,41 @@ export const SortResultSchema = z.object({
   searchTerms: z
     .array(z.string())
     .describe("2 or 3 short terms to search Jira for related tickets, including synonyms, e.g. MFA, two-factor, OTP"),
+  commitments: z.array(CommitmentSchema).optional(),
+  reason: z.string(),
+});
+export type SortResult = z.infer<typeof SortResultSchema>;
+export type Commitment = z.infer<typeof CommitmentSchema>;
+
+/** What Claude fills in when sorting: empty strings instead of null, to keep the grammar small. */
+export const SortDraftSchema = SortResultSchema.extend({
   commitments: z
     .array(
       z.object({
         what: z.string().describe("What the owner must send or do, starting with a verb, e.g. 'Send the MFA mockups'"),
-        forWhom: z.string().nullable().describe("Who it is for, by name"),
-        due: z.string().nullable().describe("Deadline as YYYY-MM-DD, resolved from the item's date; null when none was said"),
-        dueText: z.string().nullable().describe("The deadline in the item's words, e.g. 'by Friday'"),
+        forWhom: z.string().describe('Who it is for, by name, or ""'),
+        due: z.string().describe('Deadline as YYYY-MM-DD, resolved from the item\'s date, or "" when none was said'),
+        dueText: z.string().describe('The deadline in the item\'s words, e.g. "by Friday", or ""'),
         quote: z.string().describe("The words it came from, short"),
-        projectId: z.string().nullable().describe("The project it concerns, from the list, or null"),
+        projectId: z.string().describe('The project it concerns, from the list, or ""'),
       }),
     )
-    .optional()
     .describe("Things the owner promised or was asked to send or do; empty when none"),
-  reason: z.string(),
 });
-export type SortResult = z.infer<typeof SortResultSchema>;
-export type Commitment = NonNullable<SortResult["commitments"]>[number];
+
+export function fromSortDraft(d: z.infer<typeof SortDraftSchema>): SortResult {
+  return {
+    ...d,
+    commitments: (d.commitments ?? []).map((c) => ({
+      what: c.what,
+      forWhom: c.forWhom.trim() || null,
+      due: c.due.trim() || null,
+      dueText: c.dueText.trim() || null,
+      quote: c.quote,
+      projectId: c.projectId.trim() || null,
+    })),
+  };
+}
 
 const KIND_LABEL: Record<string, string> = {
   story: "story",

@@ -1,15 +1,22 @@
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { syncJira, type JiraReader } from "@/lib/jira-sync";
 import { db, schema } from "@/db";
-import { PlanSchema, SortResultSchema, type Plan, type SortResult } from "@/lib/plan";
+import { DraftSchema, DraftWithDetailsSchema, SortDraftSchema, fromDraft, fromSortDraft, type Plan, type SortResult } from "@/lib/plan";
 import { eventText, projectBlock, projectsContext } from "./context";
 import { PROPOSE_SYSTEM, SORT_SYSTEM } from "./prompts";
 import type { StructuredLLM } from "./llm";
 import { formatsText, ticketFormats } from "@/lib/ticket-formats";
 import { openSprintNames, relatedTicketsBlock } from "@/lib/jira-research";
-import { getSettings, settingsText } from "@/lib/settings";
+import { asksDetails, getSettings, settingsText } from "@/lib/settings";
 import { keepToProject, owners } from "@/lib/ownership";
 import { saveCommitments } from "@/lib/reminders";
+
+/** Ask Claude for a draft plan, with ticket details only when the owner's settings ask for them. */
+async function draft(llm: StructuredLLM, req: { system: string; context: string; input: string; effort: "low" | "medium" | "high" }): Promise<Plan> {
+  const withDetails = asksDetails(await getSettings());
+  const out = withDetails ? await llm({ ...req, schema: DraftWithDetailsSchema }) : await llm({ ...req, schema: DraftSchema });
+  return fromDraft(out);
+}
 
 /** Who the owner is, so ISA can tell which promises in an item are theirs. */
 async function ownerLine(): Promise<string> {
@@ -53,9 +60,9 @@ export async function processEvent(eventId: string, llm: StructuredLLM): Promise
       system: SORT_SYSTEM,
       context,
       input: `${await ownerLine()}New item:\n${eventText(event)}`,
-      schema: SortResultSchema,
+      schema: SortDraftSchema,
       effort: "medium",
-    });
+    }).then(fromSortDraft);
     const sort = cleanSort(raw, projectIds);
     const terms = sort.searchTerms ?? [];
     // Like a secretary: what the item asks of the owner becomes a reminder (internal only).
@@ -163,11 +170,10 @@ export async function proposeUpdate(
   });
   if (waiting) return mergeIntoWaiting(waiting, projectId, events, llm, terms, focus);
 
-  const plan = await llm({
+  const plan = await draft(llm, {
     system: PROPOSE_SYSTEM,
     context: await withFormats(`The project:\n${await projectBlock(projectId)}`, terms, projectId),
     input: `New items:\n${events.map(eventText).join("\n\n")}\n\n${focus}`,
-    schema: PlanSchema,
     effort: "high",
   });
   const cleaned = await ownPlan(cleanPlan({ ...plan, projectName: null }), projectId);
@@ -199,7 +205,7 @@ async function mergeIntoWaiting(
   const earlier = waiting.eventIds.length
     ? await db.query.events.findMany({ where: inArray(schema.events.id, waiting.eventIds), orderBy: asc(schema.events.occurredAt) })
     : [];
-  const plan = await llm({
+  const plan = await draft(llm, {
     system: PROPOSE_SYSTEM,
     context: await withFormats(`The project:\n${await projectBlock(projectId)}`, terms, projectId),
     input: [
@@ -209,7 +215,6 @@ async function mergeIntoWaiting(
       "Return the whole updated draft with the new items merged in. Keep one epic and one ticket per piece of work: extend or correct what the draft already has instead of adding duplicates. Drop open questions the new items answer. Start the summary with what the new items changed.",
       focus,
     ].join("\n\n"),
-    schema: PlanSchema,
     effort: "high",
   });
   const cleaned = await ownPlan(
@@ -233,11 +238,10 @@ async function proposeNewProject(event: EventRow, name: string, llm: StructuredL
     .values({ name, jiraProjectKey: process.env.JIRA_PROJECT_KEY ?? null })
     .returning({ id: schema.projects.id });
   await linkEvent(event.id, project.id, "new", "Started this project");
-  const plan = await llm({
+  const plan = await draft(llm, {
     system: PROPOSE_SYSTEM,
     context: await withFormats(`This is a new project. Suggested name: ${name}`, terms),
     input: `New items:\n${eventText(event)}`,
-    schema: PlanSchema,
     effort: "high",
   });
   const cleaned = cleanPlan({ ...plan, projectName: plan.projectName || name });
@@ -319,7 +323,7 @@ export async function reviseProposal(proposalId: string, instruction: string, ll
   const events = proposal.eventIds.length
     ? await db.query.events.findMany({ where: inArray(schema.events.id, proposal.eventIds) })
     : [];
-  const plan = await llm({
+  const plan = await draft(llm, {
     system: PROPOSE_SYSTEM,
     context: await withFormats(
       proposal.projectId
@@ -333,7 +337,6 @@ export async function reviseProposal(proposalId: string, instruction: string, ll
       `The owner's correction, which wins over the items:\n${instruction}`,
       "Return the whole corrected plan.",
     ].join("\n\n"),
-    schema: PlanSchema,
     effort: "high",
   });
   const cleaned = cleanPlan(
