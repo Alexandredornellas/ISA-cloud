@@ -78,6 +78,7 @@ export function eventText(e: EventRow): string {
     `Title: ${e.title}`,
     `When: ${e.occurredAt.toISOString()}`,
     e.author ? `From: ${e.author}` : null,
+    e.url ? `Link: ${e.url}` : null,
     e.participants.length ? `Participants: ${e.participants.map(personText).join("; ")}` : null,
     reply,
     "Content:",
