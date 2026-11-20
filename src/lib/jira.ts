@@ -66,6 +66,18 @@ function paragraph(text: string): AdfNode {
   return { type: "paragraph", content: inline };
 }
 
+/** The Jira project has no ticket type with this name. ISA asks the owner what to use instead. */
+export class MissingIssueTypeError extends Error {
+  constructor(
+    readonly projectKey: string,
+    readonly wanted: string,
+    readonly available: string[],
+  ) {
+    super(`Jira project ${projectKey} has no ticket type "${wanted}". Its types are: ${available.join(", ")}.`);
+    this.name = "MissingIssueTypeError";
+  }
+}
+
 type ProjectIssueType = { id: string; name: string; untranslatedName?: string; subtask?: boolean };
 
 // Common translations of Jira's default issue types, for sites not in English.
@@ -118,13 +130,13 @@ export class JiraClient {
     projectKey?: string;
   }): Promise<JiraIssue> {
     const projectKey = input.projectKey ?? this.cfg.projectKey;
-    const type = await this.issueType(projectKey, input.issueType);
-    const labels = [...(input.labels ?? []), ...(type.fallback ? [input.issueType.toLowerCase()] : [])];
+    const issueTypeId = await this.issueTypeId(projectKey, input.issueType);
+    const labels = input.labels ?? [];
     const out = await this.request<{ key: string }>("POST", "/issue", {
       fields: {
         project: { key: projectKey },
         summary: input.summary.slice(0, 254),
-        issuetype: { id: type.id },
+        issuetype: { id: issueTypeId },
         description: toAdf(input.description),
         ...(labels.length ? { labels: [...new Set(labels.map((l) => l.trim().replace(/\s+/g, "-")))] } : {}),
       },
@@ -163,7 +175,7 @@ export class JiraClient {
    * The id of a project's issue type, matched by its English name or by the name shown in the
    * site's language (a Portuguese site calls Story "História" and Task "Tarefa").
    */
-  async issueType(projectKey: string, wanted: string): Promise<{ id: string; fallback: boolean }> {
+  async issueTypeId(projectKey: string, wanted: string): Promise<string> {
     let types = this.issueTypes.get(projectKey);
     if (!types) {
       const p = await this.request<{ issueTypes?: ProjectIssueType[] }>("GET", `/project/${encodeURIComponent(projectKey)}`);
@@ -176,14 +188,8 @@ export class JiraClient {
     const match =
       types.find((t) => norm(t.untranslatedName) === target || norm(t.name) === target) ??
       types.find((t) => aliases.includes(norm(t.name)) || aliases.includes(norm(t.untranslatedName)));
-    if (match) return { id: match.id, fallback: false };
-    // The project lacks this type (projects made from some templates have no Story or Bug):
-    // use its Task type, then any non-epic type, and keep the intended type as a label.
-    const isTask = (t: ProjectIssueType) => [norm(t.untranslatedName), norm(t.name)].some((n) => ["task", ...TYPE_ALIASES.task].includes(n));
-    const isEpic = (t: ProjectIssueType) => [norm(t.untranslatedName), norm(t.name)].some((n) => ["epic", ...TYPE_ALIASES.epic].includes(n));
-    const fallback = types.find(isTask) ?? types.find((t) => !isEpic(t)) ?? types[0];
-    if (!fallback) throw new Error(`Jira project ${projectKey} has no issue types ISA can use`);
-    return { id: fallback.id, fallback: true };
+    if (!match) throw new MissingIssueTypeError(projectKey, wanted, types.map((t) => t.name));
+    return match.id;
   }
 
   async checkProject(): Promise<{ key: string; name: string }> {

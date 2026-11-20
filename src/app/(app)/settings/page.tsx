@@ -1,4 +1,4 @@
-import { DEFAULT_FORMATS, KIND_NAME, ticketFormats } from "@/lib/ticket-formats";
+import { DEFAULT_FORMATS, ticketFormats } from "@/lib/ticket-formats";
 import { SubmitButton } from "@/components/SubmitButton";
 import { resetTicketFormat, saveTicketFormat } from "./actions";
 
@@ -21,7 +21,7 @@ export default async function SettingsPage() {
           return (
             <details key={f.kind} className="rounded-xl border border-line bg-surface p-4">
               <summary className="cursor-pointer font-medium">
-                {KIND_NAME[f.kind]}
+                {f.name}
                 <span className="ml-2 text-sm font-normal text-muted">
                   Jira type {f.jiraIssueType}
                   {f.label ? `, label "${f.label}"` : ""}
@@ -30,7 +30,11 @@ export default async function SettingsPage() {
               </summary>
               <form action={saveTicketFormat} className="mt-4 space-y-3">
                 <input type="hidden" name="kind" value={f.kind} />
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <label className="text-sm text-muted">
+                    Name
+                    <input name="name" defaultValue={f.name} className={`mt-1 ${input}`} />
+                  </label>
                   <label className="text-sm text-muted">
                     Jira issue type
                     <input name="jiraIssueType" defaultValue={f.jiraIssueType} className={`mt-1 ${input}`} />
@@ -58,8 +62,8 @@ export default async function SettingsPage() {
         })}
       </div>
       <p className="mt-4 text-xs text-muted">
-        The Jira issue type must exist in your Jira project. Spikes and testing tasks are created as Tasks with a label,
-        since Jira has no such types by default.
+        Use the ticket type names exactly as your Jira shows them, e.g. &quot;Tarefa&quot; on a Portuguese site. If a type is missing,
+        ISA asks you what to use instead before creating the ticket.
       </p>
     </div>
   );

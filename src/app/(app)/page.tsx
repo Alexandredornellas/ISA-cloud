@@ -1,5 +1,6 @@
 import { ProposalCard } from "@/components/ProposalCard";
-import { inboxProposals } from "@/lib/queries";
+import { inboxProposals, missingTypeQuestions } from "@/lib/queries";
+import { QuestionCard } from "@/components/QuestionCard";
 import { SubmitButton } from "@/components/SubmitButton";
 import { retryProposal } from "./actions";
 
@@ -8,18 +9,22 @@ export const dynamic = "force-dynamic";
 export default async function InboxPage() {
   const proposals = await inboxProposals();
   const pending = proposals.filter((p) => p.status === "pending");
-  const recent = proposals.filter((p) => p.status !== "pending");
+  const questions = await missingTypeQuestions(proposals);
+  const asking = new Set(questions.map((q) => q.proposalId));
+  const recent = proposals.filter((p) => p.status !== "pending" && !asking.has(p.id));
+  const waiting = pending.length + questions.length;
 
   return (
     <div className="space-y-8">
       <section>
         <h1 className="text-2xl font-semibold">Inbox</h1>
         <p className="mt-1 text-sm text-muted">
-          {pending.length === 0
-            ? "Nothing waiting for you. ISA is listening."
-            : `${pending.length} waiting for your approval`}
+          {waiting === 0 ? "Nothing waiting for you. ISA is listening." : `${waiting} waiting for you`}
         </p>
         <div className="mt-5 space-y-4">
+          {questions.map((q) => (
+            <QuestionCard key={`${q.proposalId}:${q.wanted}`} q={q} />
+          ))}
           {pending.map((p) => (
             <ProposalCard key={p.id} {...p} />
           ))}

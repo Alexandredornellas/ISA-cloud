@@ -3,7 +3,7 @@ import { db, schema } from "@/db";
 export const TICKET_KINDS = ["story", "epic", "spike", "bug", "test"] as const;
 export type TicketKind = (typeof TICKET_KINDS)[number];
 
-export type TicketFormat = { kind: TicketKind; jiraIssueType: string; label: string | null; template: string };
+export type TicketFormat = { kind: TicketKind; name: string; jiraIssueType: string; label: string | null; template: string };
 
 export const KIND_NAME: Record<TicketKind, string> = {
   story: "User story",
@@ -25,6 +25,7 @@ const WHEN: Record<TicketKind, string> = {
 export const DEFAULT_FORMATS: Record<TicketKind, TicketFormat> = {
   story: {
     kind: "story",
+    name: "User story",
     jiraIssueType: "Story",
     label: null,
     template: `As a <type of user>, I want <goal> so that <benefit>.
@@ -41,6 +42,7 @@ Out of scope:
   },
   epic: {
     kind: "epic",
+    name: "Epic",
     jiraIssueType: "Epic",
     label: null,
     template: `Goal:
@@ -58,6 +60,7 @@ Stakeholders:
   },
   spike: {
     kind: "spike",
+    name: "Spike",
     jiraIssueType: "Task",
     label: "spike",
     template: `Question to answer:
@@ -76,6 +79,7 @@ Done when:
   },
   bug: {
     kind: "bug",
+    name: "Bug",
     jiraIssueType: "Bug",
     label: null,
     template: `Problem:
@@ -97,6 +101,7 @@ Severity: <low, medium, high or critical>, because <reason>`,
   },
   test: {
     kind: "test",
+    name: "Testing task",
     jiraIssueType: "Task",
     label: "testing",
     template: `What is tested:
@@ -122,15 +127,21 @@ export async function ticketFormats(): Promise<TicketFormat[]> {
   return TICKET_KINDS.map((kind) => {
     const row = saved.find((r) => r.kind === kind);
     return row
-      ? { kind, jiraIssueType: row.jiraIssueType, label: row.label, template: row.template }
+      ? { kind, name: row.name || DEFAULT_FORMATS[kind].name, jiraIssueType: row.jiraIssueType, label: row.label, template: row.template }
       : DEFAULT_FORMATS[kind];
   });
+}
+
+/** Save the owner's version of one format. */
+export async function saveTicketFormat(f: TicketFormat) {
+  const values = { ...f, updatedAt: new Date() };
+  await db.insert(schema.ticketFormats).values(values).onConflictDoUpdate({ target: schema.ticketFormats.kind, set: values });
 }
 
 /** The formats as instructions for Claude. */
 export function formatsText(formats: TicketFormat[]): string {
   return [
     "Ticket formats. Pick the kind that fits and write the description exactly in that kind's format, replacing every <...> with real content from the items. Leave out a section only when the items say nothing about it and it is optional; never invent facts to fill one.",
-    ...formats.map((f) => `<format kind="${f.kind}" name="${KIND_NAME[f.kind]}">\nUse for ${WHEN[f.kind]}.\n${f.template}\n</format>`),
+    ...formats.map((f) => `<format kind="${f.kind}" name="${f.name}">\nUse for ${WHEN[f.kind]}.\n${f.template}\n</format>`),
   ].join("\n\n");
 }

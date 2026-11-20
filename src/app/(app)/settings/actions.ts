@@ -3,7 +3,7 @@
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
-import { TICKET_KINDS, type TicketKind } from "@/lib/ticket-formats";
+import { DEFAULT_FORMATS, saveTicketFormat as save, TICKET_KINDS, type TicketKind } from "@/lib/ticket-formats";
 
 function kindOf(form: FormData): TicketKind {
   const kind = String(form.get("kind"));
@@ -13,15 +13,15 @@ function kindOf(form: FormData): TicketKind {
 
 export async function saveTicketFormat(form: FormData) {
   const kind = kindOf(form);
-  const values = {
+  const template = String(form.get("template") ?? "").trim();
+  if (!template) return;
+  await save({
     kind,
+    name: String(form.get("name") ?? "").trim() || DEFAULT_FORMATS[kind].name,
     jiraIssueType: String(form.get("jiraIssueType") ?? "").trim() || "Task",
     label: String(form.get("label") ?? "").trim() || null,
-    template: String(form.get("template") ?? "").trim(),
-    updatedAt: new Date(),
-  };
-  if (!values.template) return;
-  await db.insert(schema.ticketFormats).values(values).onConflictDoUpdate({ target: schema.ticketFormats.kind, set: values });
+    template,
+  });
   revalidatePath("/settings");
 }
 

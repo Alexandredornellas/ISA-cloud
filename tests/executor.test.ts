@@ -188,3 +188,40 @@ describe("ticket formats", () => {
     await db.delete(schema.ticketFormats);
   });
 });
+
+describe("missing Jira ticket types", () => {
+  it("asks instead of failing, then creates the tickets with the owner's choice and remembers it", async () => {
+    const { MissingIssueTypeError } = await import("@/lib/jira");
+    const { answerMissingIssueType } = await import("@/lib/executor");
+    const { missingTypeQuestions } = await import("@/lib/queries");
+    const { ticketFormats } = await import("@/lib/ticket-formats");
+    await db.delete(schema.ticketFormats);
+    const created: { summary: string; issueType: string }[] = [];
+    const jira = {
+      issueUrl: (k: string) => `https://x/${k}`,
+      createIssue: async (i: { summary: string; issueType: string }) => {
+        if (i.issueType === "Story") throw new MissingIssueTypeError("SCRUM", "Story", ["Epic", "Tarefa"]);
+        created.push(i);
+        return { key: `SCRUM-${created.length}`, url: "u" };
+      },
+    };
+    const senders = { jira: jira as never, slack: null, email: null };
+    const p = await addProposal({ plan: { ...newProjectPlan, actions: newProjectPlan.actions.filter((a) => a.type === "jira_create") } });
+
+    const first = await executeProposal(p.id, senders);
+
+    expect(first.ok).toBe(false);
+    const [q] = await missingTypeQuestions([{ id: p.id, title: "New project", status: "failed" }]);
+    expect(q).toMatchObject({ wanted: "Story", available: ["Epic", "Tarefa"], tickets: ["Password sign-in", "MFA code"], kindNames: ["User story"] });
+
+    const second = await answerMissingIssueType(p.id, "Story", { useType: "Tarefa" }, true, senders);
+
+    expect(second.ok).toBe(true);
+    expect(created.map((c) => [c.summary, c.issueType])).toEqual([
+      ["Password sign-in", "Tarefa"],
+      ["MFA code", "Tarefa"],
+    ]);
+    expect((await ticketFormats()).find((f) => f.kind === "story")).toMatchObject({ name: "User story", jiraIssueType: "Tarefa" });
+    await db.delete(schema.ticketFormats);
+  });
+});

@@ -53,25 +53,15 @@ describe("JiraClient", () => {
     ];
     const f = fakeFetch([{ status: 200, body: { issueTypes: types } }]);
     const jira = new JiraClient(cfg, f.impl);
-    expect(await jira.issueType("ISA", "Epic")).toEqual({ id: "1", fallback: false });
-    expect(await jira.issueType("ISA", "Story")).toEqual({ id: "2", fallback: false });
-    expect(await jira.issueType("ISA", "task")).toEqual({ id: "3", fallback: false });
-    // A type the project lacks falls back to its Task type.
-    expect(await jira.issueType("ISA", "Bug")).toEqual({ id: "3", fallback: true });
+    expect(await jira.issueTypeId("ISA", "Epic")).toBe("1");
+    expect(await jira.issueTypeId("ISA", "Story")).toBe("2");
+    expect(await jira.issueTypeId("ISA", "task")).toBe("3");
+    await expect(jira.issueTypeId("ISA", "Bug")).rejects.toMatchObject({
+      name: "MissingIssueTypeError",
+      wanted: "Bug",
+      available: ["Épico", "História", "Tarefa"],
+    });
     expect(f.calls).toHaveLength(1); // the project's types are fetched once
-  });
-
-  it("creates a missing type as a Task labelled with the intended type", async () => {
-    const types = [
-      { id: "1", name: "Epic" },
-      { id: "2", name: "Função" },
-      { id: "3", name: "Tarefa" },
-    ];
-    const f = fakeFetch([{ status: 200, body: { issueTypes: types } }, { status: 201, body: { key: "SCRUM-1" } }]);
-    await new JiraClient(cfg, f.impl).createIssue({ summary: "Login", description: "", issueType: "Story" });
-    const body = JSON.parse(String(f.calls[1].init.body));
-    expect(body.fields.issuetype).toEqual({ id: "3" });
-    expect(body.fields.labels).toEqual(["story"]);
   });
 
   it("skips an update with nothing to change", async () => {

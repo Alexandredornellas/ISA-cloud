@@ -1,8 +1,8 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Action, Person, Plan } from "@/lib/plan";
-import type { JiraClient } from "@/lib/jira";
-import { ticketFormats, type TicketKind } from "@/lib/ticket-formats";
+import { MissingIssueTypeError, type JiraClient } from "@/lib/jira";
+import { saveTicketFormat, ticketFormats, type TicketKind } from "@/lib/ticket-formats";
 
 // Outside services the executor can act on. Slack and email are wired in later.
 export type Senders = {
@@ -89,9 +89,14 @@ async function runActions(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       errors.push(message);
+      // A missing Jira ticket type becomes a question for the owner instead of a plain failure.
+      const question: ActionQuestion | null =
+        err instanceof MissingIssueTypeError
+          ? { kind: "missing_issue_type", projectKey: err.projectKey, wanted: err.wanted, available: err.available }
+          : null;
       await db
         .update(schema.actions)
-        .set({ status: "failed", error: message, updatedAt: new Date() })
+        .set({ status: "failed", error: message, result: question ? { question } : null, updatedAt: new Date() })
         .where(eq(schema.actions.id, row.id));
     }
   }
@@ -269,9 +274,62 @@ function need<T>(sender: T | null, name: string): T {
 
 /** The Jira issue type and label for a ticket kind, from the owner's ticket formats. */
 async function jiraTypeFor(action: Extract<Action, { type: "jira_create" }>): Promise<{ issueType: string; labels: string[] }> {
+  // The owner's answer to a missing-type question wins.
+  const chosen = (action as { jiraIssueType?: string }).jiraIssueType;
+  if (chosen) return { issueType: chosen, labels: await labelsFor(action) };
   // Proposals drafted before ticket kinds existed carry a Jira issue type instead.
   const legacy = (action as { issueType?: string }).issueType;
   if (!action.kind && legacy) return { issueType: legacy, labels: [] };
   const format = (await ticketFormats()).find((f) => f.kind === (action.kind as TicketKind));
   return { issueType: format?.jiraIssueType ?? "Task", labels: format?.label ? [format.label] : [] };
+}
+
+async function labelsFor(action: Extract<Action, { type: "jira_create" }>): Promise<string[]> {
+  const format = (await ticketFormats()).find((f) => f.kind === action.kind);
+  return format?.label ? [format.label] : [];
+}
+
+export type ActionQuestion = { kind: "missing_issue_type"; projectKey: string; wanted: string; available: string[] };
+
+/**
+ * The owner answered "Jira has no ticket type X": create those tickets as `choice` (or skip them),
+ * optionally remember it in the ticket format, then run the proposal's failed actions again.
+ */
+export async function answerMissingIssueType(
+  proposalId: string,
+  wanted: string,
+  choice: { useType: string } | { skip: true },
+  remember: boolean,
+  senders: Senders,
+): Promise<ExecutionResult> {
+  const failed = await db
+    .select()
+    .from(schema.actions)
+    .where(and(eq(schema.actions.proposalId, proposalId), eq(schema.actions.status, "failed")));
+  const affected = failed.filter((a) => (a.result as { question?: ActionQuestion } | null)?.question?.wanted === wanted);
+  if (!affected.length) throw new Error("Nothing to answer");
+
+  for (const a of affected) {
+    if ("skip" in choice) {
+      await db
+        .update(schema.actions)
+        .set({ status: "skipped", error: null, result: null, updatedAt: new Date() })
+        .where(eq(schema.actions.id, a.id));
+    } else {
+      await db
+        .update(schema.actions)
+        .set({ payload: { ...(a.payload as object), jiraIssueType: choice.useType }, updatedAt: new Date() })
+        .where(eq(schema.actions.id, a.id));
+    }
+  }
+
+  if (remember && "useType" in choice) {
+    const kinds = new Set(affected.map((a) => (a.payload as { kind?: TicketKind }).kind).filter((k) => k !== undefined));
+    const formats = await ticketFormats();
+    for (const kind of kinds) {
+      const f = formats.find((x) => x.kind === kind);
+      if (f) await saveTicketFormat({ ...f, jiraIssueType: choice.useType });
+    }
+  }
+  return retryFailedActions(proposalId, senders);
 }

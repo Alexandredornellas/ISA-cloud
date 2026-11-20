@@ -33,3 +33,13 @@ export async function retryProposal(form: FormData) {
   await retryFailedActions(id, liveSenders());
   revalidatePath("/", "layout");
 }
+
+export async function answerTicketTypeQuestion(form: FormData) {
+  const { answerMissingIssueType } = await import("@/lib/executor");
+  const proposalId = String(form.get("proposalId"));
+  const wanted = String(form.get("wanted"));
+  const choice = String(form.get("choice"));
+  const remember = form.get("remember") === "on";
+  await answerMissingIssueType(proposalId, wanted, choice === "__skip" ? { skip: true } : { useType: choice }, remember, liveSenders());
+  revalidatePath("/", "layout");
+}

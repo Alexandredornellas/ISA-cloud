@@ -237,6 +237,8 @@ export const workerState = pgTable("worker_state", {
 // Kinds without a row use the defaults in src/lib/ticket-formats.ts.
 export const ticketFormats = pgTable("ticket_formats", {
   kind: text("kind").primaryKey(),
+  // The owner's name for this kind, e.g. "História de usuário". Empty uses the default name.
+  name: text("name").notNull().default(""),
   jiraIssueType: text("jira_issue_type").notNull(),
   label: text("label"),
   template: text("template").notNull(),

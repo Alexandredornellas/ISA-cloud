@@ -1,0 +1,1 @@
+ALTER TABLE "ticket_formats" ADD COLUMN "name" text DEFAULT '' NOT NULL;
