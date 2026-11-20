@@ -154,6 +154,18 @@ export class JiraClient {
     await this.request("PUT", `/issue/${encodeURIComponent(key)}`, { fields });
   }
 
+  /** Move a ticket to the first status in Jira's "done" category its workflow allows. */
+  async closeIssue(key: string): Promise<string> {
+    const out = await this.request<{ transitions: { id: string; name: string; to?: { name?: string; statusCategory?: { key?: string } } }[] }>(
+      "GET",
+      `/issue/${encodeURIComponent(key)}/transitions`,
+    );
+    const done = out.transitions.find((t) => t.to?.statusCategory?.key === "done");
+    if (!done) throw new Error(`Jira offers no way to close ${key} from its current status`);
+    await this.request("POST", `/issue/${encodeURIComponent(key)}/transitions`, { transition: { id: done.id } });
+    return done.to?.name ?? done.name;
+  }
+
   async addComment(key: string, body: string) {
     await this.request("POST", `/issue/${encodeURIComponent(key)}/comment`, { body: toAdf(body) });
   }

@@ -47,6 +47,13 @@ const JiraComment = z.object({
   body: z.string(),
 });
 
+const JiraClose = z.object({
+  type: z.literal("jira_close"),
+  requirementRef: z.string(),
+  issueKey: z.string().nullable(),
+  reason: z.string().describe("Why the ticket is no longer needed, citing who decided it and where; posted as a comment"),
+});
+
 const SlackMessage = z.object({
   type: z.literal("slack_message"),
   // A channel id (C...) or a user id (U...) for a direct message.
@@ -65,7 +72,7 @@ const Email = z.object({
   threadId: z.string().nullable(),
 });
 
-export const ActionSchema = z.union([JiraCreate, JiraUpdate, JiraComment, SlackMessage, Email]);
+export const ActionSchema = z.union([JiraCreate, JiraUpdate, JiraComment, JiraClose, SlackMessage, Email]);
 export type Action = z.infer<typeof ActionSchema>;
 export type ActionType = Action["type"];
 
@@ -119,6 +126,8 @@ export function describeAction(a: Action): string {
       return `Update ${a.issueKey ?? a.requirementRef}${a.summary ? `: ${a.summary}` : ""}`;
     case "jira_comment":
       return `Comment on ${a.issueKey ?? a.requirementRef}`;
+    case "jira_close":
+      return `Close ${a.issueKey ?? a.requirementRef}: ${a.reason}`;
     case "slack_message":
       return `Slack ${a.recipientLabel}`;
     case "email":

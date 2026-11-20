@@ -164,3 +164,14 @@ describe("Jira topic research", () => {
     expect(found[0].comments[0]).toMatchObject({ author: "Bo", text: "Shipped" });
   });
 });
+
+describe("closing a ticket", () => {
+  it("moves it to a done status its workflow allows", async () => {
+    const f = fakeFetch([
+      { status: 200, body: { transitions: [{ id: "11", name: "Start", to: { name: "In Progress", statusCategory: { key: "indeterminate" } } }, { id: "31", name: "Finish", to: { name: "Concluído", statusCategory: { key: "done" } } }] } },
+      { status: 204 },
+    ]);
+    expect(await new JiraClient(cfg, f.impl).closeIssue("ISA-2")).toBe("Concluído");
+    expect(JSON.parse(String(f.calls[1].init.body))).toEqual({ transition: { id: "31" } });
+  });
+});

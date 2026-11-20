@@ -254,6 +254,14 @@ async function runAction(
       await jira.addComment(key, action.body);
       return { key, url: jira.issueUrl(key) };
     }
+    case "jira_close": {
+      const jira = need(senders.jira, "Jira");
+      const key = issueKeyFor(action.issueKey, action.requirementRef, refs);
+      await recordIsaWrite(key);
+      await jira.addComment(key, action.reason);
+      const status = await jira.closeIssue(key);
+      return { key, url: jira.issueUrl(key), status };
+    }
     case "slack_message": {
       const slack = need(senders.slack, "Slack");
       return slack.postMessage(action.channel, action.text, action.threadTs);
