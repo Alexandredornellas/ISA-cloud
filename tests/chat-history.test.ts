@@ -82,10 +82,14 @@ describe("drafting settings", () => {
     const { eq } = await import("drizzle-orm");
     const { getSettings, saveSettings, settingsText } = await import("@/lib/settings");
     await db.delete(schema.workerState).where(eq(schema.workerState.key, "settings"));
-    expect(await getSettings()).toEqual({ storiesUnderEpic: true });
+    expect(await getSettings()).toEqual({ askEpic: true, askSprint: false, askStoryPoints: false, askLinks: false, askCustom: [] });
     expect(settingsText(await getSettings())).toContain("every story");
-    await saveSettings({ storiesUnderEpic: false });
-    expect(await getSettings()).toEqual({ storiesUnderEpic: false });
+    await saveSettings({ askEpic: false, askSprint: true, askStoryPoints: true, askLinks: false, askCustom: ["Component", " ", "Component", "Due date"] });
+    expect(await getSettings()).toEqual({ askEpic: false, askSprint: true, askStoryPoints: true, askLinks: false, askCustom: ["Component", "Due date"] });
+    const text = settingsText(await getSettings());
+    expect(text).toContain("storyPoints");
+    expect(text).toContain('"Component", "Due date"');
+    expect(text).not.toContain("links:");
     await db.delete(schema.workerState).where(eq(schema.workerState.key, "settings"));
   });
 });

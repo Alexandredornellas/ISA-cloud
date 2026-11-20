@@ -256,3 +256,43 @@ describe("missing Jira ticket types", () => {
     await db.delete(schema.ticketFormats);
   });
 });
+
+describe("ticket details", () => {
+  it("sets the confirmed sprint, points and links, and notes what Jira refused", async () => {
+    const calls: string[] = [];
+    const jira = {
+      issueUrl: (k: string) => `https://x/${k}`,
+      createIssue: async (i: { description: string }) => {
+        calls.push(`create:${i.description}`);
+        return { key: "ISA-1", url: "https://x/ISA-1" };
+      },
+      openSprints: async () => [{ id: 7, name: "Sprint 4", state: "active" }],
+      moveToSprint: async (k: string, id: number) => {
+        calls.push(`sprint:${k}:${id}`);
+      },
+      setStoryPoints: async () => {
+        throw new Error("Field not on screen");
+      },
+      linkIssues: async (k: string, o: string) => {
+        calls.push(`link:${k}:${o}`);
+      },
+    };
+    const p = await addProposal({
+      plan: {
+        ...newProjectPlan,
+        actions: [
+          {
+            type: "jira_create", requirementRef: "R1", summary: "Sign-in", description: "d", kind: "story", epicRef: null,
+            details: { sprint: "sprint 4", storyPoints: 3, links: ["SCRUM-2"], extra: [{ name: "Component", value: "Auth" }, { name: "Due", value: "" }] },
+          },
+        ],
+      },
+    });
+    const out = await executeProposal(p.id, { jira: jira as never, slack: null, email: null });
+    expect(out.ok).toBe(true);
+    expect(calls).toEqual(["create:d\n\nDetails\n- Component: Auth", "sprint:ISA-1:7", "link:ISA-1:SCRUM-2"]);
+    const row = await db.query.proposals.findFirst({ where: eq(schema.proposals.id, p.id) });
+    expect(row).toMatchObject({ status: "executed" });
+    expect(row!.error).toContain("could not set story points 3");
+  });
+});

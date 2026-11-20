@@ -72,3 +72,20 @@ export async function relatedTicketsBlock(terms: string[], projectId: string | n
     return "";
   }
 }
+
+let sprintCache: { at: number; names: string[] } | null = null;
+
+/** Names of the project's active and future sprints (cached for a minute); empty when unknown. */
+export async function openSprintNames(): Promise<string[]> {
+  if (sprintCache && Date.now() - sprintCache.at < 60_000) return sprintCache.names;
+  const jira = jiraSearcher();
+  if (!jira || !("openSprints" in jira)) return [];
+  try {
+    const names = (await (jira as JiraClient).openSprints()).map((s) => s.name);
+    sprintCache = { at: Date.now(), names };
+    return names;
+  } catch (err) {
+    console.error("jira sprints failed", { error: err instanceof Error ? err.name : "unknown" });
+    return [];
+  }
+}

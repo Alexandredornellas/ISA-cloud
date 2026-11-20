@@ -44,7 +44,28 @@ export async function answerTicketTypeQuestion(form: FormData) {
   revalidatePath("/", "layout");
 }
 
-/** "Do it" on a card: carry out only the steps the owner kept, with their epic choice. */
+/** The ticket details the owner confirmed on a card (fields named d<step>_<field>). */
+function detailsFrom(form: FormData, steps: number[]) {
+  const out: Record<number, import("@/lib/choices").DetailChoice> = {};
+  for (const i of steps) {
+    const get = (f: string) => (form.has(`d${i}_${f}`) ? String(form.get(`d${i}_${f}`) ?? "").trim() : undefined);
+    const d: import("@/lib/choices").DetailChoice = {};
+    const epic = get("epic");
+    if (epic !== undefined) d.epic = epic || null;
+    const sprint = get("sprint");
+    if (sprint !== undefined) d.sprint = sprint || null;
+    const points = get("points");
+    if (points !== undefined) d.storyPoints = points && Number.isFinite(Number(points)) ? Number(points) : null;
+    const links = get("links");
+    if (links !== undefined) d.links = [...new Set(links.toUpperCase().match(/[A-Z][A-Z0-9_]+-\d+/g) ?? [])];
+    const names = form.getAll(`d${i}_xname`).map(String);
+    if (names.length) d.extra = names.map((name, j) => ({ name, value: String(form.getAll(`d${i}_xvalue`)[j] ?? "").trim() }));
+    if (Object.keys(d).length) out[i] = d;
+  }
+  return out;
+}
+
+/** "Do it" on a card: carry out only the steps the owner kept, with their epic choice and ticket details. */
 export async function proceedNotification(form: FormData) {
   const { saveChoices } = await import("@/lib/choices");
   const id = String(form.get("id"));
@@ -56,7 +77,7 @@ export async function proceedNotification(form: FormData) {
       : mode === "existing"
         ? { mode: "existing" as const, key: String(form.get("epicKey") ?? "") }
         : null;
-  await saveChoices(id, { keep, epic });
+  await saveChoices(id, { keep, epic, details: detailsFrom(form, keep) });
   await executeProposal(id, liveSenders());
   revalidatePath("/", "layout");
 }

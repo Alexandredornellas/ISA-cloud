@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
-import type { Plan } from "@/lib/plan";
+import type { Action, Plan } from "@/lib/plan";
 
 /** What the owner chose on a suggestion card before saying "Do it". */
 export type Choices = {
@@ -8,7 +8,31 @@ export type Choices = {
   keep: number[];
   /** For a suggestion that creates an epic: keep it (optionally renamed), or use an existing epic instead. */
   epic?: { mode: "new"; name: string } | { mode: "existing"; key: string } | null;
+  /** Per new ticket (by position): the details the owner confirmed. A field left out keeps ISA's suggestion. */
+  details?: Record<number, DetailChoice>;
 };
+
+export type DetailChoice = {
+  /** An existing epic's key, or null for no epic. */
+  epic?: string | null;
+  sprint?: string | null;
+  storyPoints?: number | null;
+  links?: string[];
+  extra?: { name: string; value: string }[];
+};
+
+const NO_DETAILS = { sprint: null, storyPoints: null, links: [], extra: [] };
+
+function withDetails(a: Action, d: DetailChoice | undefined): Action {
+  if (!d || a.type !== "jira_create" || a.kind === "epic") return a;
+  const { epic, ...fields } = d;
+  const defined = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined));
+  return {
+    ...a,
+    ...(epic !== undefined ? { epicRef: epic && JIRA_KEY.test(epic) ? epic : null } : {}),
+    details: { ...NO_DETAILS, ...(a.details ?? {}), ...defined },
+  };
+}
 
 const JIRA_KEY = /^[A-Z][A-Z0-9_]+-\d+$/;
 
@@ -19,7 +43,7 @@ const JIRA_KEY = /^[A-Z][A-Z0-9_]+-\d+$/;
  */
 export function applyChoices(plan: Plan, choices: Choices): Plan {
   const keep = new Set(choices.keep);
-  let actions = plan.actions.filter((_, i) => keep.has(i));
+  let actions = plan.actions.map((a, i) => withDetails(a, choices.details?.[i])).filter((_, i) => keep.has(i));
   let requirementChanges = plan.requirementChanges;
 
   const epicRefs = new Set(plan.actions.flatMap((a) => (a.type === "jira_create" && a.kind === "epic" ? [a.requirementRef] : [])));

@@ -232,8 +232,8 @@ export function NotificationCard({
                       const isEpic = a === epicAction;
                       if (isEpic && epicMode === "existing") return null;
                       return (
-                        <li key={i}>
-                          <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-line bg-surface p-3">
+                        <li key={i} className="rounded-lg border border-line bg-surface">
+                          <label className="flex cursor-pointer items-start gap-3 p-3">
                             {failed ? null : (
                               <input
                                 type="checkbox"
@@ -254,6 +254,7 @@ export function NotificationCard({
                               ) : null}
                             </span>
                           </label>
+                          {!failed && kept[i] ? <TicketAsks n={n} a={a} i={i} newEpicRef={epicAction?.requirementRef ?? null} /> : null}
                         </li>
                       );
                     })}
@@ -289,5 +290,78 @@ export function NotificationCard({
         </div>
       ) : null}
     </article>
+  );
+}
+
+const field = "w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm";
+
+/**
+ * The details the owner's settings say to confirm on a new ticket, filled with ISA's suggestions.
+ * Field names are d<step>_<field>; "Do it" saves what is shown.
+ */
+function TicketAsks({ n, a, i, newEpicRef }: { n: Notification; a: Action; i: number; newEpicRef: string | null }) {
+  if (a.type !== "jira_create" || a.kind === "epic") return null;
+  const { asks } = n;
+  const d = a.details;
+  // A ticket under the epic this card creates is placed by the Epic choice above.
+  const askEpic = asks.askEpic && !(newEpicRef && a.epicRef === newEpicRef);
+  if (!askEpic && !asks.askSprint && !asks.askStoryPoints && !asks.askLinks && !asks.askCustom.length) return null;
+  const epicNow = a.epicRef && /^[A-Z][A-Z0-9_]+-\d+$/.test(a.epicRef) ? a.epicRef : "";
+  const sprints = d?.sprint && !n.sprints.includes(d.sprint) ? [d.sprint, ...n.sprints] : n.sprints;
+  return (
+    <div className="space-y-3 border-t border-line px-3 pb-3 pt-3 sm:pl-10">
+      <p className="text-xs text-muted">
+        <span className="mr-1 rounded-md bg-accent-soft px-2 py-0.5 text-accent">ISA suggests</span>
+        Check these before ISA creates the ticket.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {askEpic ? (
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Epic</span>
+            <select name={`d${i}_epic`} defaultValue={epicNow} className={field}>
+              <option value="">No epic</option>
+              {epicNow && !n.existingEpics.some((e) => e.key === epicNow) ? <option value={epicNow}>{epicNow}</option> : null}
+              {n.existingEpics.map((e) => (
+                <option key={e.key} value={e.key}>
+                  {e.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        {asks.askSprint ? (
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Sprint</span>
+            <select name={`d${i}_sprint`} defaultValue={d?.sprint ?? ""} className={field}>
+              <option value="">No sprint (backlog)</option>
+              {sprints.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        {asks.askStoryPoints ? (
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Story points</span>
+            <input type="number" min={0} step="any" name={`d${i}_points`} defaultValue={d?.storyPoints ?? ""} placeholder="No estimate" className={field} />
+          </label>
+        ) : null}
+        {asks.askLinks ? (
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Linked tickets</span>
+            <input name={`d${i}_links`} defaultValue={(d?.links ?? []).join(", ")} placeholder="e.g. SCRUM-4, SCRUM-9" className={field} />
+          </label>
+        ) : null}
+        {asks.askCustom.map((name) => (
+          <label key={name} className="block text-sm">
+            <span className="mb-1 block font-medium">{name}</span>
+            <input type="hidden" name={`d${i}_xname`} value={name} />
+            <input name={`d${i}_xvalue`} defaultValue={d?.extra.find((e) => e.name.toLowerCase() === name.toLowerCase())?.value ?? ""} placeholder="Leave empty to skip" className={field} />
+          </label>
+        ))}
+      </div>
+    </div>
   );
 }

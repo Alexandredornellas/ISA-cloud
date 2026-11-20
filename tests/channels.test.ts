@@ -54,6 +54,25 @@ describe("applyChoices", () => {
     expect(out.requirementChanges.map((r) => r.ref)).toEqual(["R2"]);
   });
 
+  it("applies the ticket details the owner confirmed", () => {
+    const withSuggestion: Plan = {
+      ...plan,
+      actions: plan.actions.map((a) =>
+        a.type === "jira_create" && a.kind === "story" ? { ...a, epicRef: "SCRUM-1", details: { sprint: "Sprint 4", storyPoints: 3, links: ["SCRUM-2"], extra: [] } } : a,
+      ),
+    };
+    const out = applyChoices(withSuggestion, {
+      keep: [1],
+      details: { 1: { epic: "SCRUM-7", storyPoints: 5, extra: [{ name: "Component", value: "Auth" }] } },
+    });
+    expect(out.actions[0]).toMatchObject({
+      epicRef: "SCRUM-7",
+      details: { sprint: "Sprint 4", storyPoints: 5, links: ["SCRUM-2"], extra: [{ name: "Component", value: "Auth" }] },
+    });
+    const none = applyChoices(withSuggestion, { keep: [1], details: { 1: { epic: null, sprint: null } } });
+    expect(none.actions[0]).toMatchObject({ epicRef: null, details: { sprint: null, storyPoints: 3 } });
+  });
+
   it("does not leave a story pointing at an epic that was unticked", () => {
     const out = applyChoices(plan, { keep: [1] });
     expect(out.actions[0]).toMatchObject({ summary: "Reset by email", epicRef: null });

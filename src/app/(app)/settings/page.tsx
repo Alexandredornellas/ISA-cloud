@@ -5,6 +5,13 @@ import { getSettings } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 
+const ASKS = [
+  { name: "askEpic", label: "Epic", help: "Every story, spike, bug and testing task goes under an epic: an existing one that fits, or a new epic ISA proposes with it." },
+  { name: "askSprint", label: "Sprint", help: "ISA suggests one of the open sprints, or none." },
+  { name: "askStoryPoints", label: "Story points", help: "ISA estimates the size from what was discussed." },
+  { name: "askLinks", label: "linked tickets", help: "ISA suggests existing tickets this one relates to or depends on." },
+] as const;
+
 const input = "w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm";
 
 export default async function SettingsPage() {
@@ -13,21 +20,36 @@ export default async function SettingsPage() {
     <div>
       <h1 className="text-2xl font-semibold">Settings</h1>
       <form action={saveDraftingSettings} className="mt-5 rounded-xl border border-line bg-surface p-4">
-        <label className="flex cursor-pointer items-start gap-3">
-          <input
-            type="checkbox"
-            name="storiesUnderEpic"
-            defaultChecked={settings.storiesUnderEpic}
-            className="mt-1 h-4 w-4 accent-[var(--color-accent)]"
-          />
-          <span>
-            <span className="block font-medium">Stories always under an epic</span>
-            <span className="block text-sm text-muted">
-              Every story, spike, bug and testing task ISA drafts goes under an epic: an existing one that fits, or a new epic she proposes with it.
-            </span>
-          </span>
-        </label>
-        <SubmitButton className="mt-3 border border-line">Save</SubmitButton>
+        <h2 className="font-semibold">Before ISA creates a ticket</h2>
+        <p className="mt-1 text-sm text-muted">
+          For each box you check, ISA suggests a value on every ticket she drafts, and the card asks you to confirm or change it before anything goes to Jira.
+        </p>
+        <div className="mt-4 space-y-3">
+          {ASKS.map((a) => (
+            <label key={a.name} className="flex cursor-pointer items-start gap-3">
+              <input type="checkbox" name={a.name} defaultChecked={settings[a.name]} className="mt-1 h-4 w-4 accent-[var(--color-accent)]" />
+              <span>
+                <span className="block font-medium">Always ask for {a.label}?</span>
+                <span className="block text-sm text-muted">{a.help}</span>
+              </span>
+            </label>
+          ))}
+          {settings.askCustom.map((c) => (
+            <label key={c} className="flex cursor-pointer items-start gap-3">
+              <input type="checkbox" name="askCustom" value={c} defaultChecked className="mt-1 h-4 w-4 accent-[var(--color-accent)]" />
+              <span>
+                <span className="block font-medium">Always ask for {c}?</span>
+                <span className="block text-sm text-muted">Your own field. Uncheck and save to remove it.</span>
+              </span>
+            </label>
+          ))}
+          <label className="block">
+            <span className="block text-sm font-medium">Add your own: Always ask for…</span>
+            <input name="newCustom" placeholder="e.g. Component, Due date, Reviewer" className={`${input} mt-1 max-w-sm`} />
+            <span className="mt-1 block text-xs text-muted">ISA suggests it on every ticket and adds your answer to the ticket&apos;s description.</span>
+          </label>
+        </div>
+        <SubmitButton className="mt-4 border border-line">Save</SubmitButton>
       </form>
       <h2 className="mt-8 text-lg font-semibold">Ticket formats</h2>
       <p className="mt-1 text-sm text-muted">

@@ -23,6 +23,15 @@ export const RequirementChangeSchema = z.object({
 });
 export type RequirementChange = z.infer<typeof RequirementChangeSchema>;
 
+/** Details the owner confirms on a new ticket, when their settings ask for them. */
+export const TicketDetailsSchema = z.object({
+  sprint: z.string().nullable().describe("Name of the open sprint, or null"),
+  storyPoints: z.number().nullable(),
+  links: z.array(z.string()).describe("Jira keys of related existing tickets"),
+  extra: z.array(z.object({ name: z.string(), value: z.string() })).describe("The owner's own fields, by name"),
+});
+export type TicketDetails = z.infer<typeof TicketDetailsSchema>;
+
 const JiraCreate = z.object({
   type: z.literal("jira_create"),
   requirementRef: z.string(),
@@ -33,6 +42,7 @@ const JiraCreate = z.object({
     .string()
     .nullable()
     .describe("The epic this ticket goes under: an existing epic's Jira key (e.g. SCRUM-1), or the requirementRef of an epic created earlier in this plan. Null for an epic, or when no epic fits."),
+  details: TicketDetailsSchema.nullable().optional().describe("Only when the owner's settings ask for ticket details; otherwise null"),
 });
 
 const JiraUpdate = z.object({

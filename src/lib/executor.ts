@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/db";
-import type { Action, Person, Plan } from "@/lib/plan";
+import type { Action, Person, Plan, TicketDetails } from "@/lib/plan";
 import { MissingIssueTypeError, type JiraClient } from "@/lib/jira";
 import { recordIsaWrite } from "@/lib/jira-track";
 import { saveTicketFormat, ticketFormats, type TicketKind } from "@/lib/ticket-formats";
@@ -80,9 +80,11 @@ async function runActions(
   senders: Senders,
 ): Promise<ExecutionResult> {
   const errors: string[] = [];
+  const warnings: string[] = [];
   for (const row of rows) {
     try {
       const result = await runAction(row.payload as Action, refToRequirement, senders);
+      if (Array.isArray(result.warnings)) warnings.push(...(result.warnings as string[]));
       await db
         .update(schema.actions)
         .set({ status: "done", result, error: null, updatedAt: new Date() })
@@ -112,7 +114,8 @@ async function runActions(
     .update(schema.proposals)
     .set({
       status: stillFailed.length ? "failed" : "executed",
-      error: stillFailed.length ? unique.join("\n") : null,
+      // A done proposal can still carry notes, e.g. a sprint Jira would not set.
+      error: stillFailed.length ? unique.join("\n") : warnings.length ? warnings.join("\n") : null,
       updatedAt: new Date(),
     })
     .where(eq(schema.proposals.id, proposalId));
@@ -228,7 +231,7 @@ async function runAction(
       const jira = need(senders.jira, "Jira");
       const issue = await jira.createIssue({
         summary: action.summary,
-        description: action.description,
+        description: withExtraDetails(action.description, action.details),
         ...(await jiraTypeFor(action)),
         parentKey: action.kind === "epic" ? null : epicKeyFor(action.epicRef ?? null, refs),
       });
@@ -243,7 +246,8 @@ async function runAction(
         refs.set(row.id, row);
       }
       await recordIsaWrite(issue.key, req?.projectId ?? null);
-      return issue;
+      const warnings = action.details ? await applyDetails(jira, issue.key, action.details) : [];
+      return warnings.length ? { ...issue, warnings } : issue;
     }
     case "jira_update": {
       const jira = need(senders.jira, "Jira");
@@ -299,6 +303,43 @@ function epicKeyFor(epicRef: string | null, refs: Map<string, RequirementRow>): 
 }
 
 /** The Jira issue type and label for a ticket kind, from the owner's ticket formats. */
+/** The owner's own fields go into the ticket's description, since Jira has no field for them. */
+export function withExtraDetails(description: string, details: TicketDetails | null | undefined): string {
+  const extra = (details?.extra ?? []).filter((e) => e.name.trim() && e.value.trim());
+  if (!extra.length) return description;
+  return `${description}\n\nDetails\n${extra.map((e) => `- ${e.name.trim()}: ${e.value.trim()}`).join("\n")}`;
+}
+
+/**
+ * Set the confirmed sprint, story points and links on a ticket just created. The ticket exists
+ * either way, so a detail Jira refuses becomes a note for the owner instead of a failed step.
+ */
+async function applyDetails(jira: JiraClient, key: string, d: TicketDetails): Promise<string[]> {
+  const warnings: string[] = [];
+  const attempt = async (what: string, fn: () => Promise<unknown>) => {
+    try {
+      await fn();
+    } catch (err) {
+      console.error("jira detail failed", { what, error: err instanceof Error ? err.name : "unknown" });
+      warnings.push(`${key}: could not set ${what} (${err instanceof Error ? err.message.slice(0, 160) : "error"})`);
+    }
+  };
+  if (d.sprint?.trim()) {
+    await attempt(`sprint "${d.sprint}"`, async () => {
+      const sprint = (await jira.openSprints()).find((s) => s.name.trim().toLowerCase() === d.sprint!.trim().toLowerCase());
+      if (!sprint) throw new Error("no open sprint has that name");
+      await jira.moveToSprint(key, sprint.id);
+    });
+  }
+  if (d.storyPoints != null && Number.isFinite(d.storyPoints)) {
+    await attempt(`story points ${d.storyPoints}`, () => jira.setStoryPoints(key, d.storyPoints!));
+  }
+  for (const other of d.links.filter((k) => /^[A-Z][A-Z0-9_]+-\d+$/.test(k) && k !== key)) {
+    await attempt(`a link to ${other}`, () => jira.linkIssues(key, other));
+  }
+  return warnings;
+}
+
 async function jiraTypeFor(action: Extract<Action, { type: "jira_create" }>): Promise<{ issueType: string; labels: string[] }> {
   // The owner's answer to a missing-type question wins.
   const chosen = (action as { jiraIssueType?: string }).jiraIssueType;

@@ -106,7 +106,9 @@ export class JiraClient {
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const auth = Buffer.from(`${this.cfg.email}:${this.cfg.apiToken}`).toString("base64");
-    const res = await this.fetchImpl(`https://${this.cfg.site}/rest/api/3${path}`, {
+    // Paths under /rest/ (e.g. the agile API) are used as given; the rest are platform API v3.
+    const url = path.startsWith("/rest/") ? `https://${this.cfg.site}${path}` : `https://${this.cfg.site}/rest/api/3${path}`;
+    const res = await this.fetchImpl(url, {
       method,
       headers: {
         Authorization: `Basic ${auth}`,
@@ -255,11 +257,65 @@ export class JiraClient {
   }
 
   private sprintField: string | null | undefined;
+  private fieldList: Promise<{ id: string; name: string; schema?: { custom?: string } }[]> | null = null;
+
+  private fields() {
+    this.fieldList ??= this.request<{ id: string; name: string; schema?: { custom?: string } }[]>("GET", "/field").catch((err) => {
+      this.fieldList = null;
+      throw err;
+    });
+    return this.fieldList;
+  }
+
+  /** The id of the Story Points field (company- or team-managed, English or Portuguese), or null. */
+  async storyPointsFieldId(): Promise<string | null> {
+    const fields = await this.fields();
+    const byName = (re: RegExp) => fields.find((f) => re.test(f.name))?.id;
+    return byName(/^story point estimate$/i) ?? byName(/^story points$/i) ?? byName(/estimativa.*pontos|pontos.*hist[óo]ria|story point/i) ?? null;
+  }
+
+  /** Active and future sprints on the project's boards, active first. */
+  async openSprints(projectKey = this.cfg.projectKey): Promise<{ id: number; name: string; state: string }[]> {
+    const boards = await this.request<{ values: { id: number; type: string }[] }>(
+      "GET",
+      `/rest/agile/1.0/board?projectKeyOrId=${encodeURIComponent(projectKey)}`,
+    );
+    const out = new Map<number, { id: number; name: string; state: string }>();
+    for (const b of boards.values.filter((b) => b.type === "scrum")) {
+      const sprints = await this.request<{ values: { id: number; name: string; state: string }[] }>(
+        "GET",
+        `/rest/agile/1.0/board/${b.id}/sprint?state=active,future`,
+      );
+      for (const s of sprints.values) out.set(s.id, { id: s.id, name: s.name, state: s.state });
+    }
+    return [...out.values()].sort((a, b) => (a.state === b.state ? a.id - b.id : a.state === "active" ? -1 : 1));
+  }
+
+  async moveToSprint(key: string, sprintId: number) {
+    await this.request("POST", `/rest/agile/1.0/sprint/${sprintId}/issue`, { issues: [key] });
+  }
+
+  async setStoryPoints(key: string, points: number) {
+    const field = await this.storyPointsFieldId();
+    if (!field) throw new Error("This Jira site has no Story Points field");
+    await this.request("PUT", `/issue/${encodeURIComponent(key)}`, { fields: { [field]: points } });
+  }
+
+  /** Link two tickets with Jira's "relates to" link. */
+  async linkIssues(key: string, other: string) {
+    const types = await this.request<{ issueLinkTypes: { name: string; outward: string }[] }>("GET", "/issueLinkType");
+    const type =
+      types.issueLinkTypes.find((t) => t.name === "Relates") ??
+      types.issueLinkTypes.find((t) => /relat|relacion/i.test(`${t.name} ${t.outward}`)) ??
+      types.issueLinkTypes[0];
+    if (!type) throw new Error("This Jira site has no link types");
+    await this.request("POST", "/issueLink", { type: { name: type.name }, outwardIssue: { key }, inwardIssue: { key: other } });
+  }
 
   /** The id of the site's Sprint field (a custom field), or null when the site has none. */
   async sprintFieldId(): Promise<string | null> {
     if (this.sprintField === undefined) {
-      const fields = await this.request<{ id: string; name: string; schema?: { custom?: string } }[]>("GET", "/field");
+      const fields = await this.fields();
       this.sprintField =
         fields.find((f) => f.schema?.custom === "com.pyxis.greenhopper.jira:gh-sprint")?.id ??
         fields.find((f) => f.name.toLowerCase() === "sprint")?.id ??

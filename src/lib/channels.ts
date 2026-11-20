@@ -4,6 +4,8 @@ import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { missingTypeQuestions, type MissingTypeQuestion } from "@/lib/queries";
 import type { Plan } from "@/lib/plan";
+import { getSettings, type Settings } from "@/lib/settings";
+import { openSprintNames } from "@/lib/jira-research";
 
 export type Channel = { id: string | null; name: string; count: number; done: boolean };
 
@@ -49,6 +51,10 @@ export type Notification = {
   /** For a "where does this go?" question: where it could go, ISA's guess first. */
   places: { projectId: string; name: string; best: boolean }[];
   question: MissingTypeQuestion | null;
+  /** The details the owner's settings say to confirm on each new ticket. */
+  asks: Settings;
+  /** Open sprints to choose from, when the owner confirms sprints. */
+  sprints: string[];
 };
 
 export async function notifications(channelId: string | null): Promise<Notification[]> {
@@ -81,6 +87,9 @@ export async function notifications(channelId: string | null): Promise<Notificat
         .from(schema.jiraTickets)
         .where(and(eq(schema.jiraTickets.projectId, channelId), isNull(schema.jiraTickets.deletedAt)))
     : [];
+  const asks = await getSettings();
+  const creates = rows.some((r) => r.plan.actions.some((a) => a.type === "jira_create" && a.kind !== "epic"));
+  const sprints = asks.askSprint && creates ? await openSprintNames() : [];
   const existingEpics = epics
     .filter((t) => /^(epic|[eé]pico|[eé]pica|epique)$/i.test(t.issueType ?? ""))
     .map((t) => ({ key: t.key, label: `${t.key} ${t.summary}` }));
@@ -94,7 +103,7 @@ export async function notifications(channelId: string | null): Promise<Notificat
     error: r.error,
     createdAt: r.createdAt,
     sources: r.eventIds.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : [])),
-    existingEpics: r.plan.actions.some((a) => a.type === "jira_create" && a.kind === "epic") ? existingEpics : [],
+    existingEpics: r.plan.actions.some((a) => a.type === "jira_create" && (a.kind === "epic" || asks.askEpic)) ? existingEpics : [],
     places:
       r.kind === "clarify"
         ? [
@@ -103,6 +112,8 @@ export async function notifications(channelId: string | null): Promise<Notificat
           ]
         : [],
     question: questions.find((q) => q.proposalId === r.id) ?? null,
+    asks,
+    sprints,
   }));
 }
 
@@ -123,7 +134,7 @@ export async function decisions(channelId: string | null): Promise<{ id: string;
         ? `You marked "${p.title}" as not needed.`
         : p.kind === "clarify"
           ? `You filed "${p.title.replace(/^Where does |^Is /, "").replace(/ belong\?$| about .*\?$/, "")}". ISA drafted its tickets in that project.`
-          : `You approved "${p.title}"${steps ? ` (${steps} step${steps === 1 ? "" : "s"})` : ""}.${p.status === "executed" ? " Done." : " ISA is doing it."}`;
+          : `You approved "${p.title}"${steps ? ` (${steps} step${steps === 1 ? "" : "s"})` : ""}.${p.status === "executed" ? ` Done.${p.error ? ` Note: ${p.error}` : ""}` : " ISA is doing it."}`;
     return { id: p.id, at: p.decidedAt ?? p.updatedAt, text: what };
   });
 }

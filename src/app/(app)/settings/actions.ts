@@ -32,6 +32,13 @@ export async function resetTicketFormat(form: FormData) {
 }
 
 export async function saveDraftingSettings(form: FormData) {
-  await saveSettings({ storiesUnderEpic: form.get("storiesUnderEpic") === "on" });
+  const on = (k: string) => form.get(k) === "on";
+  await saveSettings({
+    askEpic: on("askEpic"),
+    askSprint: on("askSprint"),
+    askStoryPoints: on("askStoryPoints"),
+    askLinks: on("askLinks"),
+    askCustom: [...form.getAll("askCustom").map(String), String(form.get("newCustom") ?? "")],
+  });
   revalidatePath("/settings");
 }

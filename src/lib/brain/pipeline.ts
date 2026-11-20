@@ -6,14 +6,16 @@ import { eventText, projectBlock, projectsContext } from "./context";
 import { PROPOSE_SYSTEM, SORT_SYSTEM } from "./prompts";
 import type { StructuredLLM } from "./llm";
 import { formatsText, ticketFormats } from "@/lib/ticket-formats";
-import { relatedTicketsBlock } from "@/lib/jira-research";
+import { openSprintNames, relatedTicketsBlock } from "@/lib/jira-research";
 import { getSettings, settingsText } from "@/lib/settings";
 import { keepToProject, owners } from "@/lib/ownership";
 
 /** Context for drafting: the owner's ticket formats, then the project. */
 async function withFormats(context: string, terms: string[] = [], projectId: string | null = null): Promise<string> {
-  const related = await relatedTicketsBlock(terms, projectId);
-  return [formatsText(await ticketFormats()), settingsText(await getSettings()), context, related].filter(Boolean).join("\n\n");
+  const [related, settings] = await Promise.all([relatedTicketsBlock(terms, projectId), getSettings()]);
+  const sprints = settings.askSprint ? await openSprintNames() : [];
+  const sprintText = settings.askSprint ? `Open sprints in Jira: ${sprints.length ? sprints.map((n) => `"${n}"`).join(", ") : "none found"}` : "";
+  return [formatsText(await ticketFormats()), settingsText(settings), sprintText, context, related].filter(Boolean).join("\n\n");
 }
 
 /** What to search Jira for: the terms ISA picked when it sorted these items. */
