@@ -124,7 +124,16 @@ export async function proposeUpdate(projectId: string, events: EventRow[], llm: 
   return row.id;
 }
 
+/**
+ * Work that fits no project: create the project right away and file the item under it, so its
+ * transcript and history are there at once. The drafted tickets still wait for approval.
+ */
 async function proposeNewProject(event: EventRow, name: string, llm: StructuredLLM): Promise<string> {
+  const [project] = await db
+    .insert(schema.projects)
+    .values({ name, jiraProjectKey: process.env.JIRA_PROJECT_KEY ?? null })
+    .returning({ id: schema.projects.id });
+  await linkEvent(event.id, project.id, "new", "Started this project");
   const plan = await llm({
     system: PROPOSE_SYSTEM,
     context: await withFormats(`This is a new project. Suggested name: ${name}`),
@@ -133,10 +142,15 @@ async function proposeNewProject(event: EventRow, name: string, llm: StructuredL
     effort: "high",
   });
   const cleaned = cleanPlan({ ...plan, projectName: plan.projectName || name });
+  await db
+    .update(schema.projects)
+    .set({ name: cleaned.projectName!, summary: cleaned.summary, updatedAt: new Date() })
+    .where(eq(schema.projects.id, project.id));
   const [row] = await db
     .insert(schema.proposals)
     .values({
       kind: "new_project",
+      projectId: project.id,
       title: `New project: ${cleaned.projectName}`,
       plan: cleaned,
       eventIds: [event.id],

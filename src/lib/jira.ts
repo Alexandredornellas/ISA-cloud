@@ -211,3 +211,9 @@ export class JiraClient {
     return { key: p.key, name: p.name };
   }
 }
+
+/** The browser link of a ticket on the configured Jira site. */
+export function jiraBrowseUrl(key: string): string {
+  const site = process.env.JIRA_SITE?.replace(/^https?:\/\//, "").replace(/\/$/, "");
+  return site ? `https://${site}/browse/${key}` : key;
+}

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/db";
@@ -94,6 +95,12 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
     <div className="space-y-8">
       <section>
         <h1 className="text-2xl font-semibold">{project.name}</h1>
+        <Link
+          href={`/chat?ask=${encodeURIComponent(`About the project "${project.name}": `)}`}
+          className="mt-2 inline-block rounded-lg border border-line px-3 py-1.5 text-sm font-medium"
+        >
+          Ask ISA about this project
+        </Link>
         {project.summary ? <p className="mt-2 text-sm">{project.summary}</p> : null}
       </section>
 

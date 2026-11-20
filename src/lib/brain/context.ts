@@ -1,5 +1,6 @@
 import { asc, eq, ne, and } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { jiraBrowseUrl } from "@/lib/jira";
 
 type EventRow = typeof schema.events.$inferSelect;
 
@@ -40,7 +41,7 @@ export async function projectBlock(projectId: string): Promise<string> {
       ? reqs.map(
           (r) =>
             `- [${r.id}] ${r.title} (status: ${r.status}${r.approvedBy ? `, approved by ${r.approvedBy}` : ""}${
-              r.jiraIssueKey ? `, Jira ${r.jiraIssueKey}` : ", no ticket yet"
+              r.jiraIssueKey ? `, Jira ${r.jiraIssueKey} ${jiraBrowseUrl(r.jiraIssueKey)}` : ", no ticket yet"
             })${r.description ? `\n  ${r.description.replace(/\n/g, "\n  ")}` : ""}`,
         )
       : ["(none yet)"]),

@@ -4,7 +4,8 @@ import { clearChatMessages } from "./actions";
 
 export const dynamic = "force-dynamic";
 
-export default async function ChatPage() {
+export default async function ChatPage({ searchParams }: PageProps<"/chat">) {
+  const { ask } = await searchParams;
   const messages = await chatTranscript();
   return (
     <div>
@@ -19,7 +20,7 @@ export default async function ChatPage() {
       <p className="mt-1 text-sm text-muted">
         Correct a draft, move something to the right project, or tell ISA a rule. Changes wait in the inbox for your approval.
       </p>
-      <ChatPanel messages={messages} />
+      <ChatPanel messages={messages} initial={typeof ask === "string" ? ask : ""} />
     </div>
   );
 }

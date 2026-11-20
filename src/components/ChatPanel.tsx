@@ -11,7 +11,25 @@ const EXAMPLES = [
   "The billing email belongs to the Login project",
 ];
 
-export function ChatPanel({ messages }: { messages: Message[] }) {
+/** Message text with web links made clickable. */
+function Linked({ text }: { text: string }) {
+  const parts = text.split(/(https?:\/\/[^\s)]+)/g);
+  return (
+    <>
+      {parts.map((part, i) =>
+        /^https?:\/\//.test(part) ? (
+          <a key={i} href={part} target="_blank" rel="noreferrer" className="underline">
+            {part}
+          </a>
+        ) : (
+          part
+        ),
+      )}
+    </>
+  );
+}
+
+export function ChatPanel({ messages, initial = "" }: { messages: Message[]; initial?: string }) {
   const [optimistic, addOptimistic] = useOptimistic(messages, (state, text: string) => [
     ...state,
     { id: "pending", role: "user" as const, text },
@@ -52,7 +70,7 @@ export function ChatPanel({ messages }: { messages: Message[] }) {
                   m.role === "user" ? "bg-accent text-white" : "border border-line bg-surface"
                 }`}
               >
-                {m.text}
+                <Linked text={m.text} />
               </p>
             </li>
           ))}
@@ -65,7 +83,7 @@ export function ChatPanel({ messages }: { messages: Message[] }) {
         action={(form) => send(String(form.get("text") ?? ""))}
         className="flex gap-2 rounded-xl border border-line bg-surface p-2"
       >
-        <input name="text" autoComplete="off" placeholder="Message ISA" className="flex-1 bg-transparent px-2 text-sm outline-none" />
+        <input name="text" autoComplete="off" defaultValue={initial} autoFocus={!!initial} placeholder="Message ISA" className="flex-1 bg-transparent px-2 text-sm outline-none" />
         <button disabled={pending} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-60">
           Send
         </button>

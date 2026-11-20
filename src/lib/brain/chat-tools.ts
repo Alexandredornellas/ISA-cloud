@@ -1,9 +1,10 @@
 // What the owner can ask ISA to do in the chat. These only read ISA's data or change proposals,
 // projects and rules. Nothing here writes to Jira, Slack or email: that happens on approval.
-import { and, desc, eq, ilike, inArray, or } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, or } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { describeAction } from "@/lib/plan";
+import { jiraBrowseUrl } from "@/lib/jira";
 import { eventText, projectBlock } from "./context";
 import type { StructuredLLM } from "./llm";
 import { processEvent, refileEvent, reviseProposal } from "./pipeline";
@@ -41,6 +42,44 @@ export function chatTools(llm: StructuredLLM): ChatTool[] {
       description: "Read one project: summary, people, rules, and its requirements with their Jira tickets.",
       inputSchema: z.object({ projectId: id }),
       run: async ({ projectId }) => projectBlock(projectId),
+    }),
+    tool({
+      name: "list_project_items",
+      description:
+        "List the meetings, emails, Slack messages and notes filed under a project, oldest first, with their ids, plus the Jira tickets ISA created for it with links.",
+      inputSchema: z.object({ projectId: id }),
+      run: async ({ projectId }) => {
+        const links = await db.select().from(schema.eventProjects).where(eq(schema.eventProjects.projectId, projectId));
+        const evs = links.length
+          ? await db.query.events.findMany({
+              where: inArray(schema.events.id, links.map((l) => l.eventId)),
+              orderBy: asc(schema.events.occurredAt),
+            })
+          : [];
+        const tickets = await db
+          .select({ key: schema.requirements.jiraIssueKey, title: schema.requirements.title, status: schema.requirements.status })
+          .from(schema.requirements)
+          .where(eq(schema.requirements.projectId, projectId));
+        return [
+          "Items:",
+          ...(evs.length
+            ? evs.map((e) => `- ${e.id}: ${e.occurredAt.toISOString().slice(0, 16).replace("T", " ")} ${e.source} "${e.title}"${e.author ? ` from ${e.author}` : ""}`)
+            : ["(none)"]),
+          "Jira tickets:",
+          ...(tickets.some((t) => t.key)
+            ? tickets.filter((t) => t.key).map((t) => `- ${t.key} ${t.title} (${t.status}) ${jiraBrowseUrl(t.key!)}`)
+            : ["(none created yet)"]),
+        ].join("\n");
+      },
+    }),
+    tool({
+      name: "get_item",
+      description: "Read one item in full, e.g. a whole meeting transcript or email, by its id.",
+      inputSchema: z.object({ eventId: id }),
+      run: async ({ eventId }) => {
+        const e = await db.query.events.findFirst({ where: eq(schema.events.id, eventId) });
+        return e ? eventText(e) : "Item not found.";
+      },
     }),
     tool({
       name: "search_items",
