@@ -54,3 +54,24 @@ describe("chat transcript", () => {
     await db.delete(schema.chatMessages);
   });
 });
+
+describe("project chats", () => {
+  it("keeps each project's conversation apart from the general one", async () => {
+    const { db, schema } = await import("@/db");
+    const { chatTranscript, clearChat } = await import("@/lib/brain/chat");
+    await db.delete(schema.chatMessages);
+    const [p] = await db.insert(schema.projects).values({ name: "Login" }).returning();
+    const text = (t: string) => [{ type: "text", text: t }];
+    await db.insert(schema.chatMessages).values([
+      { role: "user", content: text("general question") },
+      { role: "user", content: text("login question"), projectId: p.id },
+    ]);
+    expect((await chatTranscript()).map((m) => m.text)).toEqual(["general question"]);
+    expect((await chatTranscript(p.id)).map((m) => m.text)).toEqual(["login question"]);
+    await clearChat(p.id);
+    expect(await chatTranscript(p.id)).toEqual([]);
+    expect(await chatTranscript()).toHaveLength(1);
+    await db.delete(schema.chatMessages);
+    await db.delete(schema.projects);
+  });
+});

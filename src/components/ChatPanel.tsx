@@ -46,7 +46,17 @@ function Linked({ text }: { text: string }) {
   );
 }
 
-export function ChatPanel({ messages, initial = "" }: { messages: Message[]; initial?: string }) {
+export function ChatPanel({
+  messages,
+  initial = "",
+  projectId = null,
+  examples = EXAMPLES,
+}: {
+  messages: Message[];
+  initial?: string;
+  projectId?: string | null;
+  examples?: string[];
+}) {
   const [optimistic, addOptimistic] = useOptimistic(messages, (state, text: string) => [
     ...state,
     { id: "pending", role: "user" as const, text },
@@ -63,6 +73,7 @@ export function ChatPanel({ messages, initial = "" }: { messages: Message[]; ini
       addOptimistic(text);
       const form = new FormData();
       form.set("text", text);
+      if (projectId) form.set("projectId", projectId);
       const failed = await sendChatMessage(form).catch(() => "ISA could not answer.");
       if (failed) setError(failed);
     });
@@ -72,7 +83,7 @@ export function ChatPanel({ messages, initial = "" }: { messages: Message[]; ini
     <div className="mt-5 space-y-4">
       {optimistic.length === 0 ? (
         <div className="flex flex-wrap gap-2">
-          {EXAMPLES.map((e) => (
+          {examples.map((e) => (
             <button key={e} onClick={() => send(e)} className="rounded-full border border-line px-3 py-1.5 text-sm text-muted hover:text-ink">
               {e}
             </button>

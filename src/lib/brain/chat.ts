@@ -1,9 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodTool } from "@anthropic-ai/sdk/helpers/beta/zod";
 import type { BetaMessageParam } from "@anthropic-ai/sdk/resources/beta/messages/messages";
-import { asc } from "drizzle-orm";
+import { asc, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { chatTools } from "./chat-tools";
+import { projectBlock } from "./context";
 import { claudeStructured, MODEL } from "./llm";
 
 const CHAT_SYSTEM = `You are ISA, the owner's AI business analyst and personal secretary, built on Claude. The owner is usually a developer: requirements reach them from meetings, email and Slack, and you centralize those requirements and the reasoning behind them in Jira. In this chat you are a full assistant: answer any question the way Claude would, with real reasoning and expertise, whether it is about the owner's projects or anything else (writing, analysis, product and engineering questions, planning, explanations).
@@ -20,15 +21,20 @@ How to work:
 - Write in Markdown. Fit the length to the question: a short answer for a simple question, structure (short headings, lists, tables) for a longer one.`;
 
 /** Send the owner's message to ISA, run any tools it uses, and store the conversation. Returns ISA's reply. */
-export async function sendChat(text: string): Promise<string> {
-  const history = await db.query.chatMessages.findMany({ orderBy: asc(schema.chatMessages.createdAt) });
+export async function sendChat(text: string, projectId: string | null = null): Promise<string> {
+  const history = await db.query.chatMessages.findMany({ where: inChat(projectId), orderBy: asc(schema.chatMessages.createdAt) });
   try {
-    return await runChat(text, replayable(history));
+    return await runChat(text, replayable(history), projectId);
   } catch (err) {
     // A stored conversation the API no longer accepts must not lock the chat: retry with its text only.
     console.error("chat failed, retrying with text only", { error: errorKind(err) });
-    return await runChat(text, textOnly(history));
+    return await runChat(text, textOnly(history), projectId);
   }
+}
+
+/** Each project has its own conversation; projectId null is the general one. */
+function inChat(projectId: string | null) {
+  return projectId ? eq(schema.chatMessages.projectId, projectId) : isNull(schema.chatMessages.projectId);
 }
 
 type StoredMessage = { role: string; content: unknown };
@@ -80,7 +86,7 @@ export function textOnly(history: StoredMessage[]): BetaMessageParam[] {
   return turns;
 }
 
-async function runChat(text: string, messages: BetaMessageParam[]): Promise<string> {
+async function runChat(text: string, messages: BetaMessageParam[], projectId: string | null): Promise<string> {
   const start = messages.length;
   messages.push({ role: "user", content: [{ type: "text", text }] });
 
@@ -107,7 +113,10 @@ async function runChat(text: string, messages: BetaMessageParam[]): Promise<stri
     max_tokens: 8000,
     max_iterations: 12,
     thread: false,
-    system: [{ type: "text", text: CHAT_SYSTEM, cache_control: { type: "ephemeral" } }],
+    system: [
+      { type: "text", text: CHAT_SYSTEM, cache_control: { type: "ephemeral" } },
+      ...(projectId ? [{ type: "text" as const, text: await projectFocus(projectId) }] : []),
+    ],
     messages,
     tools,
     output_config: { effort: "medium" },
@@ -129,6 +138,7 @@ async function runChat(text: string, messages: BetaMessageParam[]): Promise<stri
   const base = Date.now();
   await db.insert(schema.chatMessages).values(
     fresh.map((m, i) => ({
+      projectId,
       role: m.role,
       content: typeof m.content === "string" ? [{ type: "text", text: m.content }] : m.content,
       // Keep the order stable: rows inserted together otherwise share a timestamp.
@@ -158,8 +168,8 @@ const TOOL_LABEL: Record<string, string> = {
  * The conversation as the owner sees it: the text, plus what ISA looked at to answer
  * (shown under each answer, so the owner can tell where it comes from).
  */
-export async function chatTranscript(): Promise<{ id: string; role: "user" | "assistant"; text: string; used: string[] }[]> {
-  const rows = await db.query.chatMessages.findMany({ orderBy: asc(schema.chatMessages.createdAt) });
+export async function chatTranscript(projectId: string | null = null): Promise<{ id: string; role: "user" | "assistant"; text: string; used: string[] }[]> {
+  const rows = await db.query.chatMessages.findMany({ where: inChat(projectId), orderBy: asc(schema.chatMessages.createdAt) });
   const out: { id: string; role: "user" | "assistant"; text: string; used: string[] }[] = [];
   let used: string[] = [];
   for (const m of rows) {
@@ -185,6 +195,13 @@ export async function chatTranscript(): Promise<{ id: string; role: "user" | "as
   return out;
 }
 
-export async function clearChat() {
-  await db.delete(schema.chatMessages);
+export async function clearChat(projectId: string | null = null) {
+  await db.delete(schema.chatMessages).where(inChat(projectId));
+}
+
+/** The project a project chat is about, as ISA knows it now. */
+async function projectFocus(projectId: string): Promise<string> {
+  const project = await db.query.projects.findFirst({ where: eq(schema.projects.id, projectId) });
+  if (!project) return "";
+  return `This conversation is about the project "${project.name}" (id ${project.id}). Unless the owner says otherwise, every question refers to it. Its current state in ISA (check Jira with your tools before relying on ticket details):\n${await projectBlock(projectId)}`;
 }

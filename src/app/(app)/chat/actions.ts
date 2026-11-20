@@ -8,7 +8,7 @@ export async function sendChatMessage(form: FormData): Promise<string | null> {
   const text = String(form.get("text") ?? "").trim();
   if (!text) return null;
   try {
-    await sendChat(text);
+    await sendChat(text, projectIdOf(form));
   } catch (err) {
     console.error("chat failed", { error: err instanceof Error ? err.name : "unknown", status: (err as { status?: number })?.status ?? null });
     return "ISA could not answer. Check the Anthropic key on the Connections page and try again.";
@@ -17,7 +17,12 @@ export async function sendChatMessage(form: FormData): Promise<string | null> {
   return null;
 }
 
-export async function clearChatMessages() {
-  await clearChat();
+export async function clearChatMessages(form: FormData) {
+  await clearChat(projectIdOf(form));
   revalidatePath("/chat");
+}
+
+function projectIdOf(form: FormData): string | null {
+  const id = String(form.get("projectId") ?? "");
+  return /^[0-9a-f-]{36}$/.test(id) ? id : null;
 }

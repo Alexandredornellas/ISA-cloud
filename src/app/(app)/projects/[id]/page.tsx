@@ -103,7 +103,7 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
       <section>
         <h1 className="text-2xl font-semibold">{project.name}</h1>
         <Link
-          href={`/chat?ask=${encodeURIComponent(`About the project "${project.name}": `)}`}
+          href={`/chat?project=${project.id}`}
           className="mt-2 inline-block rounded-lg border border-line px-3 py-1.5 text-sm font-medium"
         >
           Ask ISA about this project
