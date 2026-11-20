@@ -18,6 +18,7 @@ export const eventSource = pgEnum("event_source", [
   "gmail",
   "slack",
   "manual",
+  "jira",
 ]);
 
 export const eventStatus = pgEnum("event_status", [
@@ -246,3 +247,49 @@ export const ticketFormats = pgTable("ticket_formats", {
   template: text("template").notNull(),
   ...timestamps,
 });
+
+// ISA's record of each Jira ticket it manages: the last known state, so changes can be compared.
+export const jiraTickets = pgTable("jira_tickets", {
+  key: text("key").primaryKey(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+  issueType: text("issue_type"),
+  summary: text("summary").notNull().default(""),
+  description: text("description").notNull().default(""),
+  status: text("status"),
+  assignee: text("assignee"),
+  sprint: text("sprint"),
+  epic: text("epic"),
+  labels: jsonb("labels").$type<string[]>().notNull().default([]),
+  jiraUpdatedAt: timestamp("jira_updated_at", { withTimezone: true }),
+  // Jira change-history entries up to this id are already recorded.
+  historySeenUpTo: text("history_seen_up_to"),
+  // When ISA itself wrote to this ticket, so its own edits are not mistaken for someone else's.
+  isaWrites: jsonb("isa_writes").$type<string[]>().notNull().default([]),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  ...timestamps,
+});
+
+// Every change to a managed ticket, from Jira's change history: who changed what, and when.
+export const ticketChanges = pgTable(
+  "ticket_changes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    key: text("key").notNull(),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+    historyId: text("history_id").notNull(),
+    field: text("field").notNull(),
+    fromValue: text("from_value"),
+    toValue: text("to_value"),
+    author: text("author"),
+    authorAccountId: text("author_account_id"),
+    byIsa: text("by_isa").notNull().default("no"), // "yes" when ISA made it
+    changedAt: timestamp("changed_at", { withTimezone: true }).notNull(),
+    // The event ISA filed to review this change, if it needed review.
+    eventId: uuid("event_id").references(() => events.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("ticket_changes_entry_idx").on(t.historyId, t.field),
+    index("ticket_changes_key_idx").on(t.key),
+  ],
+);

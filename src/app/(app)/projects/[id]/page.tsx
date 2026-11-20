@@ -5,6 +5,7 @@ import { db, schema } from "@/db";
 import { describeAction, type Action } from "@/lib/plan";
 import { addRule, redraftItem, removeRule } from "./actions";
 import { SubmitButton } from "@/components/SubmitButton";
+import { describeChange } from "@/lib/jira-track";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +45,12 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
       .orderBy(desc(schema.actions.createdAt)),
     db.query.projectRules.findMany({ where: eq(schema.projectRules.projectId, id) }),
   ]);
+  const ticketChanges = await db
+    .select()
+    .from(schema.ticketChanges)
+    .where(eq(schema.ticketChanges.projectId, id))
+    .orderBy(desc(schema.ticketChanges.changedAt))
+    .limit(20);
 
   const evs = links.length
     ? await db
@@ -144,6 +151,22 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
               <li key={p.name} className="rounded-full border border-line bg-surface px-3 py-1">
                 {p.name}
                 {p.role ? <span className="text-muted"> · {p.role}</span> : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {ticketChanges.length ? (
+        <section>
+          <h2 className="text-xs font-medium uppercase tracking-wide text-muted">Changes in Jira</h2>
+          <ul className="mt-3 space-y-2 text-sm">
+            {ticketChanges.map((c) => (
+              <li key={c.id} className="flex gap-3">
+                <span className="w-28 shrink-0 text-xs text-muted">
+                  {c.changedAt.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                </span>
+                <span className={c.byIsa === "yes" ? "text-muted" : ""}>{describeChange(c)}</span>
               </li>
             ))}
           </ul>

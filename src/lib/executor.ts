@@ -2,6 +2,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Action, Person, Plan } from "@/lib/plan";
 import { MissingIssueTypeError, type JiraClient } from "@/lib/jira";
+import { recordIsaWrite } from "@/lib/jira-track";
 import { saveTicketFormat, ticketFormats, type TicketKind } from "@/lib/ticket-formats";
 
 // Outside services the executor can act on. Slack and email are wired in later.
@@ -236,17 +237,20 @@ async function runAction(
         refs.set(action.requirementRef, row);
         refs.set(row.id, row);
       }
+      await recordIsaWrite(issue.key, req?.projectId ?? null);
       return issue;
     }
     case "jira_update": {
       const jira = need(senders.jira, "Jira");
       const key = issueKeyFor(action.issueKey, action.requirementRef, refs);
+      await recordIsaWrite(key);
       await jira.updateIssue(key, action);
       return { key, url: jira.issueUrl(key) };
     }
     case "jira_comment": {
       const jira = need(senders.jira, "Jira");
       const key = issueKeyFor(action.issueKey, action.requirementRef, refs);
+      await recordIsaWrite(key);
       await jira.addComment(key, action.body);
       return { key, url: jira.issueUrl(key) };
     }

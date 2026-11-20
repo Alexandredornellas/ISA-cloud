@@ -91,3 +91,49 @@ describe("projectIssues", () => {
     expect(f.calls[1].url).toContain("nextPageToken=p2");
   });
 });
+
+describe("ticket tracking reads", () => {
+  it("reads a ticket's state, including sprint and epic", async () => {
+    const { adfToText } = await import("@/lib/jira");
+    const f = fakeFetch([
+      { status: 200, body: [{ id: "customfield_10020", name: "Sprint", schema: { custom: "com.pyxis.greenhopper.jira:gh-sprint" } }] },
+      {
+        status: 200,
+        body: {
+          issues: [
+            {
+              key: "ISA-1",
+              fields: {
+                summary: "Login",
+                description: { type: "doc", version: 1, content: [{ type: "paragraph", content: [{ type: "text", text: "Sign in" }] }] },
+                status: { name: "In Progress" },
+                assignee: { displayName: "Ana" },
+                labels: ["auth"],
+                parent: { key: "ISA-0", fields: { summary: "Accounts" } },
+                issuetype: { name: "Story" },
+                updated: "2026-11-20T10:00:00.000+0000",
+                customfield_10020: [{ name: "Sprint 3", state: "closed" }, { name: "Sprint 4", state: "active" }],
+              },
+            },
+          ],
+        },
+      },
+    ]);
+    const [t] = await new JiraClient(cfg, f.impl).ticketDetails(["ISA-1"]);
+    expect(t).toMatchObject({ key: "ISA-1", description: "Sign in", status: "In Progress", assignee: "Ana", sprint: "Sprint 4", epic: "ISA-0 Accounts", labels: ["auth"] });
+    expect(new URL(f.calls[1].url).searchParams.get("jql")).toBe("key in (ISA-1)");
+    expect(adfToText(toAdf("A\n\n- one\n- two"))).toBe("A\n\n- one\n- two");
+  });
+
+  it("reads the change history across pages", async () => {
+    const entry = (id: string) => ({ id, created: "2026-11-20T10:00:00.000+0000", author: { displayName: "Ana", accountId: "a" }, items: [{ field: "status", fromString: "To Do", toString: "Done" }] });
+    const f = fakeFetch([
+      { status: 200, body: { values: [entry("1")], isLast: false } },
+      { status: 200, body: { values: [entry("2")], isLast: true } },
+    ]);
+    const log = await new JiraClient(cfg, f.impl).changelog("ISA-1");
+    expect(log.map((l) => l.id)).toEqual(["1", "2"]);
+    expect(log[0].items[0]).toEqual({ field: "status", from: "To Do", to: "Done" });
+    expect(f.calls[1].url).toContain("startAt=1");
+  });
+});

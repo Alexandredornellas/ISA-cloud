@@ -9,6 +9,7 @@ import { eventText, projectBlock } from "./context";
 import type { StructuredLLM } from "./llm";
 import { processEvent, redraftProject, refileEvent, reviseProposal } from "./pipeline";
 import { syncJira, type JiraReader } from "@/lib/jira-sync";
+import { describeChange, ticketHistory } from "@/lib/jira-track";
 
 export type ChatTool = {
   name: string;
@@ -128,6 +129,36 @@ export function chatTools(llm: StructuredLLM, jira: JiraReader | null = null): C
             ].join("\n"),
           )
           .join("\n\n");
+      },
+    }),
+    tool({
+      name: "ticket_history",
+      description:
+        "What changed in Jira on a project's tickets, or on one ticket: who changed which field, from what, to what, and when. Also each ticket's last known assignee, sprint, epic and status.",
+      inputSchema: z.object({
+        projectId: z.string().nullable().describe("A project id, or null when asking about one ticket"),
+        ticketKey: z.string().nullable().describe("A Jira key like SCRUM-12, or null for the whole project"),
+      }),
+      run: async ({ projectId, ticketKey }) => {
+        if (!projectId && !ticketKey) return "Give a project id or a ticket key.";
+        const snaps = await db
+          .select()
+          .from(schema.jiraTickets)
+          .where(ticketKey ? eq(schema.jiraTickets.key, ticketKey) : eq(schema.jiraTickets.projectId, projectId!));
+        const changes = await ticketHistory(ticketKey ? { key: ticketKey } : { projectId: projectId! });
+        return [
+          "Tickets (last known state):",
+          ...(snaps.length
+            ? snaps.map(
+                (t) =>
+                  `- ${t.key} ${t.summary} | ${t.deletedAt ? "deleted in Jira" : (t.status ?? "?")} | assignee: ${t.assignee ?? "nobody"} | sprint: ${t.sprint ?? "none"} | epic: ${t.epic ?? "none"} | ${jiraBrowseUrl(t.key)}`,
+              )
+            : ["(ISA has not checked these tickets yet)"]),
+          "Changes, newest first:",
+          ...(changes.length
+            ? changes.map((c) => `- ${c.changedAt.toISOString().slice(0, 16).replace("T", " ")} ${describeChange(c)}${c.field === "description" && c.toValue ? `. New text: ${c.toValue.slice(0, 600)}` : ""}`)
+            : ["(no changes recorded)"]),
+        ].join("\n");
       },
     }),
     tool({

@@ -232,6 +232,81 @@ export class JiraClient {
     }
   }
 
+  private accountId: string | null = null;
+
+  /** The Jira account ISA signs in with. */
+  async myAccountId(): Promise<string> {
+    if (!this.accountId) this.accountId = (await this.request<{ accountId: string }>("GET", "/myself")).accountId;
+    return this.accountId;
+  }
+
+  private sprintField: string | null | undefined;
+
+  /** The id of the site's Sprint field (a custom field), or null when the site has none. */
+  async sprintFieldId(): Promise<string | null> {
+    if (this.sprintField === undefined) {
+      const fields = await this.request<{ id: string; name: string; schema?: { custom?: string } }[]>("GET", "/field");
+      this.sprintField =
+        fields.find((f) => f.schema?.custom === "com.pyxis.greenhopper.jira:gh-sprint")?.id ??
+        fields.find((f) => f.name.toLowerCase() === "sprint")?.id ??
+        null;
+    }
+    return this.sprintField;
+  }
+
+  /** The full current state of these tickets. Tickets missing from the answer were deleted. */
+  async ticketDetails(keys: string[]): Promise<TicketDetail[]> {
+    const sprintField = await this.sprintFieldId().catch(() => null);
+    const fields = ["summary", "description", "status", "assignee", "labels", "parent", "issuetype", "updated", ...(sprintField ? [sprintField] : [])];
+    const out: TicketDetail[] = [];
+    for (let i = 0; i < keys.length; i += 50) {
+      const batch = keys.slice(i, i + 50).filter((k) => /^[A-Z][A-Z0-9_]+-\d+$/.test(k));
+      if (!batch.length) continue;
+      let nextPageToken: string | undefined;
+      do {
+        const params = new URLSearchParams({ jql: `key in (${batch.join(",")})`, maxResults: "100", fields: fields.join(",") });
+        if (nextPageToken) params.set("nextPageToken", nextPageToken);
+        const page = await this.request<{ issues: { key: string; fields: Record<string, unknown> }[]; nextPageToken?: string }>(
+          "GET",
+          `/search/jql?${params}`,
+        );
+        for (const issue of page.issues) out.push(ticketDetail(issue.key, issue.fields, sprintField));
+        nextPageToken = page.nextPageToken;
+      } while (nextPageToken);
+    }
+    return out;
+  }
+
+  /** A ticket's change history, oldest first: who changed which field, from what, to what, and when. */
+  async changelog(key: string): Promise<ChangelogEntry[]> {
+    const out: ChangelogEntry[] = [];
+    let startAt = 0;
+    for (;;) {
+      const page = await this.request<{
+        values: {
+          id: string;
+          created: string;
+          author?: { displayName?: string; accountId?: string };
+          items: { field: string; fromString?: string | null; toString?: string | null }[];
+        }[];
+        isLast?: boolean;
+        total?: number;
+      }>("GET", `/issue/${encodeURIComponent(key)}/changelog?startAt=${startAt}&maxResults=100`);
+      for (const v of page.values) {
+        out.push({
+          id: v.id,
+          at: new Date(v.created),
+          author: v.author?.displayName ?? null,
+          authorAccountId: v.author?.accountId ?? null,
+          items: v.items.map((it) => ({ field: it.field, from: it.fromString ?? null, to: it.toString ?? null })),
+        });
+      }
+      startAt += page.values.length;
+      if (page.isLast !== false || !page.values.length) break;
+    }
+    return out;
+  }
+
   async checkProject(): Promise<{ key: string; name: string }> {
     const p = await this.request<{ key: string; name: string }>(
       "GET",
@@ -239,6 +314,59 @@ export class JiraClient {
     );
     return { key: p.key, name: p.name };
   }
+}
+
+export type TicketDetail = {
+  key: string;
+  issueType: string | null;
+  summary: string;
+  description: string;
+  status: string | null;
+  assignee: string | null;
+  sprint: string | null;
+  epic: string | null;
+  labels: string[];
+  updated: Date | null;
+};
+
+export type ChangelogEntry = {
+  id: string;
+  at: Date;
+  author: string | null;
+  authorAccountId: string | null;
+  items: { field: string; from: string | null; to: string | null }[];
+};
+
+function ticketDetail(key: string, f: Record<string, unknown>, sprintField: string | null): TicketDetail {
+  const named = (v: unknown, prop = "name") => (v && typeof v === "object" ? ((v as Record<string, unknown>)[prop] as string) ?? null : null);
+  const sprints = (sprintField ? f[sprintField] : null) as { name: string; state?: string }[] | null;
+  const sprint = Array.isArray(sprints) && sprints.length ? (sprints.find((s) => s.state === "active") ?? sprints.at(-1)!).name : null;
+  const parent = f.parent as { key: string; fields?: { summary?: string } } | undefined;
+  return {
+    key,
+    issueType: named(f.issuetype),
+    summary: (f.summary as string) ?? "",
+    description: adfToText(f.description),
+    status: named(f.status),
+    assignee: named(f.assignee, "displayName"),
+    sprint,
+    epic: parent ? `${parent.key}${parent.fields?.summary ? ` ${parent.fields.summary}` : ""}` : null,
+    labels: Array.isArray(f.labels) ? (f.labels as string[]) : [],
+    updated: typeof f.updated === "string" ? new Date(f.updated) : null,
+  };
+}
+
+/** Plain text from an Atlassian Document Format value. */
+export function adfToText(node: unknown): string {
+  if (!node || typeof node !== "object") return typeof node === "string" ? node : "";
+  const n = node as { type?: string; text?: string; content?: unknown[] };
+  if (n.type === "text") return n.text ?? "";
+  if (n.type === "hardBreak") return "\n";
+  const inner = (n.content ?? []).map(adfToText);
+  if (n.type === "listItem") return `- ${inner.join("").trim()}\n`;
+  if (n.type === "doc") return inner.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  if (n.type === "paragraph" || n.type === "heading" || n.type === "bulletList" || n.type === "orderedList") return `${inner.join("")}\n`;
+  return inner.join("");
 }
 
 /** The browser link of a ticket on the configured Jira site. */
