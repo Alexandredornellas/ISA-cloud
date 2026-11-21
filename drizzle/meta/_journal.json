@@ -78,6 +78,20 @@
       "when": 1795264958617,
       "tag": "0010_blue_domino",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1795265666621,
+      "tag": "0011_person_duties",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1795265670789,
+      "tag": "0012_drop_project_people",
+      "breakpoints": true
     }
   ]
 }

@@ -1,9 +1,11 @@
 import Link from "next/link";
-import type { DirectoryEntry, Stakeholder, SuggestionView } from "@/lib/people";
+import type { DirectoryEntry, Duty, Stakeholder, SuggestionView } from "@/lib/people";
 import { SourceMark } from "@/components/SourceMark";
 import { SubmitButton } from "@/components/SubmitButton";
 import { timeAgo } from "@/lib/sources";
-import { addStakeholder, decideSuggestion, deletePerson, removeStakeholder, savePersonForm, setStakeholderRole } from "@/app/(app)/people/actions";
+import { decideSuggestion, deleteDuty, deletePerson, editDuty, newDuty, removeStakeholder, savePersonForm } from "@/app/(app)/people/actions";
+
+type ProjectOption = { id: string; name: string };
 
 const input = "w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm";
 
@@ -90,13 +92,9 @@ function PersonFields({ p }: { p?: DirectoryEntry }) {
       <input name="email" type="email" defaultValue={p?.email ?? ""} placeholder="Email (optional)" aria-label="Email" className={input} />
       <input name="title" defaultValue={p?.title ?? ""} placeholder="What they do, e.g. Head of Payments" aria-label="What they do" className={input} />
       <input name="team" defaultValue={p?.team ?? ""} placeholder="Team (optional)" aria-label="Team" className={input} />
-      <input
-        name="canHelpWith"
-        defaultValue={p?.canHelpWith.join(", ") ?? ""}
-        placeholder="Can help with, comma separated, e.g. PCI, Stripe contract"
-        aria-label="Can help with"
-        className={`${input} sm:col-span-2`}
-      />
+      {p ? null : (
+        <input name="helps" placeholder="Can help with, comma separated, e.g. PCI, Stripe contract" aria-label="Can help with" className={`${input} sm:col-span-2`} />
+      )}
       <textarea name="notes" defaultValue={p?.notes ?? ""} rows={2} placeholder="Notes, e.g. prefers Slack, decides fast on Tuesdays" aria-label="Notes" className={`${input} sm:col-span-2`} />
     </div>
   );
@@ -116,46 +114,114 @@ export function AddPersonForm() {
   );
 }
 
-/** One person in the company directory, with an inline edit form. */
-export function PersonCard({ person }: { person: DirectoryEntry }) {
+/** One duty with an inline editor: change the words or remove it. */
+function DutyItem({ duty, label }: { duty: Duty; label?: string }) {
+  return (
+    <details className="group">
+      <summary className="cursor-pointer list-none rounded px-1 -mx-1 hover:bg-hover" title={duty.quote ? `“${duty.quote}”` : "Edit"}>
+        {label ? <span className="font-medium">{label}: </span> : null}
+        {duty.text}
+      </summary>
+      <form action={editDuty} className="my-1.5 flex gap-1.5">
+        <input type="hidden" name="id" value={duty.id} />
+        <input name="text" defaultValue={duty.text} aria-label="Duty" className={`${input} py-1.5`} />
+        <SubmitButton className="border border-line">Save</SubmitButton>
+        <SubmitButton formAction={deleteDuty} className="border border-line text-muted">
+          Remove
+        </SubmitButton>
+      </form>
+    </details>
+  );
+}
+
+/** Add one or more duties (comma separated) to a person, for a project or company-wide. */
+function AddDutyForm({ personId, projects, projectId }: { personId: string; projects?: ProjectOption[]; projectId?: string }) {
+  return (
+    <form action={newDuty} className="mt-1.5 flex flex-wrap gap-1.5">
+      <input type="hidden" name="personId" value={personId} />
+      {projectId ? <input type="hidden" name="projectId" value={projectId} /> : null}
+      <input name="text" required placeholder={projectId ? "Another duty here, e.g. Approves budget" : "New duty, e.g. Approves budget"} aria-label="New duty" className={`${input} min-w-0 flex-1 py-1.5`} />
+      {projects ? (
+        <select name="projectId" aria-label="Where it applies" defaultValue="" className={`${input} w-auto py-1.5`}>
+          <option value="">Company-wide</option>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+      ) : null}
+      <SubmitButton className="border border-line">Add</SubmitButton>
+    </form>
+  );
+}
+
+/** A person's duties: company-wide ones, then one line group per project. */
+function DutyGroups({ duties }: { duties: Duty[] }) {
+  const general = duties.filter((d) => !d.projectId);
+  const byProject = new Map<string, Duty[]>();
+  for (const d of duties.filter((d) => d.projectId)) byProject.set(d.projectId!, [...(byProject.get(d.projectId!) ?? []), d]);
+  if (!duties.length) return <p className="mt-2 text-xs text-muted">No duties yet.</p>;
+  return (
+    <div className="mt-2 space-y-1.5 text-xs">
+      {general.length ? (
+        <div>
+          <p className="text-muted">Can help with, company-wide</p>
+          <ul className="mt-0.5 flex flex-wrap gap-x-3">
+            {general.map((d) => (
+              <li key={d.id}>
+                <DutyItem duty={d} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {[...byProject.values()].map((list) => (
+        <div key={list[0].projectId}>
+          <Link href={`/?c=${list[0].projectId}`} className="text-muted hover:text-ink hover:underline">
+            {list[0].projectName}
+          </Link>
+          <ul className="mt-0.5 flex flex-wrap gap-x-3">
+            {list.map((d) => (
+              <li key={d.id}>
+                <DutyItem duty={d} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const projectCount = (duties: Duty[]) => new Set(duties.filter((d) => d.projectId).map((d) => d.projectId)).size;
+
+/** One person in the company directory: who they are and every duty, editable in place. */
+export function PersonCard({ person, projects }: { person: DirectoryEntry; projects: ProjectOption[] }) {
   return (
     <li className="p-4">
       <div className="flex items-start gap-3">
         <Initials name={person.name} />
         <div className="min-w-0 flex-1 text-sm">
-          <p className="font-medium">{person.name}</p>
+          <p className="font-medium">
+            {person.name}
+            <span className="ml-2 text-xs font-normal text-muted">
+              {person.duties.length} {person.duties.length === 1 ? "duty" : "duties"}
+              {projectCount(person.duties) ? ` · ${projectCount(person.duties)} ${projectCount(person.duties) === 1 ? "project" : "projects"}` : ""}
+            </span>
+          </p>
           <p className="text-muted">{[person.title, person.team].filter(Boolean).join(" · ") || "Role not known yet"}</p>
-          {person.canHelpWith.length ? (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              <span className="text-xs text-muted">Can help with</span>
-              {person.canHelpWith.map((c) => (
-                <span key={c} className="rounded-full bg-bg px-2 py-0.5 text-xs">
-                  {c}
-                </span>
-              ))}
-            </div>
-          ) : null}
-          {person.projects.length ? (
-            <ul className="mt-2 space-y-0.5 text-xs">
-              {person.projects.map((p) => (
-                <li key={p.id}>
-                  <Link href={`/?c=${p.id}`} className="font-medium hover:underline">
-                    {p.name}
-                  </Link>
-                  {p.role ? <span className="text-muted"> · {p.role}</span> : null}
-                </li>
-              ))}
-            </ul>
-          ) : null}
+          <DutyGroups duties={person.duties} />
           {person.notes ? <p className="mt-2 text-xs text-muted">{person.notes}</p> : null}
           <details className="mt-2">
-            <summary className="cursor-pointer text-xs text-muted hover:text-ink">Edit</summary>
-            <form action={savePersonForm} className="mt-2 space-y-2">
+            <summary className="cursor-pointer text-xs text-muted hover:text-ink">Add a duty or edit</summary>
+            <AddDutyForm personId={person.id} projects={projects} />
+            <form action={savePersonForm} className="mt-3 space-y-2">
               <input type="hidden" name="id" value={person.id} />
               <PersonFields p={person} />
               <div className="flex justify-end gap-2">
                 <SubmitButton formAction={deletePerson} className="border border-line text-muted">
-                  Remove
+                  Remove person
                 </SubmitButton>
                 <SubmitButton className="bg-accent text-white">Save</SubmitButton>
               </div>
@@ -167,38 +233,51 @@ export function PersonCard({ person }: { person: DirectoryEntry }) {
   );
 }
 
-/** A project's stakeholders: who moves it forward and how, editable in place. */
+/** A project's stakeholders: each person's duties on this project, editable in place. */
 export function StakeholderList({ projectId, people, names }: { projectId: string; people: Stakeholder[]; names: string[] }) {
   return (
     <div>
       {people.length ? (
-        <ul className="space-y-3">
-          {people.map((p) => (
-            <li key={p.id} className="flex items-start gap-2.5 text-sm">
-              <Initials name={p.name} size="sm" />
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-medium">{p.name}</p>
-                {p.title ? <p className="truncate text-xs text-muted">{p.title}</p> : null}
-                <details className="group">
-                  <summary className={`cursor-pointer list-none text-xs ${p.role ? "text-ink" : "text-muted"} hover:underline`}>{p.role ?? "+ How do they move this forward?"}</summary>
-                  <form action={setStakeholderRole} className="mt-1.5 flex gap-1.5">
-                    <input type="hidden" name="projectId" value={projectId} />
-                    <input type="hidden" name="personId" value={p.id} />
-                    <input name="role" defaultValue={p.role ?? ""} placeholder="e.g. Approves scope changes" aria-label={`How ${p.name} moves this project forward`} className={`${input} py-1.5`} />
-                    <SubmitButton className="border border-line">Save</SubmitButton>
-                    <SubmitButton formAction={removeStakeholder} className="border border-line text-muted">
-                      Remove
-                    </SubmitButton>
-                  </form>
-                </details>
-              </div>
-            </li>
-          ))}
+        <ul className="space-y-4">
+          {people.map((p) => {
+            const elsewhere = p.duties.filter((d) => d.projectId !== projectId);
+            return (
+              <li key={p.id} className="flex items-start gap-2.5 text-sm">
+                <Initials name={p.name} size="sm" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium">{p.name}</p>
+                  {p.title ? <p className="truncate text-xs text-muted">{p.title}</p> : null}
+                  <ul className="mt-1 space-y-0.5 text-xs">
+                    {p.here.map((d) => (
+                      <li key={d.id}>
+                        <DutyItem duty={d} />
+                      </li>
+                    ))}
+                  </ul>
+                  {elsewhere.length ? (
+                    <p className="mt-1 text-xs text-muted" title={elsewhere.map((d) => `${d.text}${d.projectName ? ` (${d.projectName})` : ""}`).join("\n")}>
+                      Also: {elsewhere.slice(0, 3).map((d) => d.text).join(" · ")}
+                      {elsewhere.length > 3 ? ` +${elsewhere.length - 3}` : ""}
+                    </p>
+                  ) : null}
+                  <details className="mt-1">
+                    <summary className="cursor-pointer list-none text-xs text-muted hover:text-ink hover:underline">+ Duty</summary>
+                    <AddDutyForm personId={p.id} projectId={projectId} />
+                    <form action={removeStakeholder} className="mt-1">
+                      <input type="hidden" name="projectId" value={projectId} />
+                      <input type="hidden" name="personId" value={p.id} />
+                      <button className="text-xs text-muted hover:text-danger">Remove from this project</button>
+                    </form>
+                  </details>
+                </div>
+              </li>
+            );
+          })}
         </ul>
       ) : (
         <p className="text-sm text-muted">Nobody yet. Add who can unblock or approve things here.</p>
       )}
-      <form action={addStakeholder} className="mt-3 grid gap-1.5">
+      <form action={newDuty} className="mt-4 grid gap-1.5">
         <input type="hidden" name="projectId" value={projectId} />
         <input name="name" list={`people-${projectId}`} required placeholder="Name (from the directory or new)" aria-label="Stakeholder name" className={input} />
         <datalist id={`people-${projectId}`}>
@@ -207,7 +286,7 @@ export function StakeholderList({ projectId, people, names }: { projectId: strin
           ))}
         </datalist>
         <div className="flex gap-1.5">
-          <input name="role" placeholder="How they move it forward" aria-label="How they move the project forward" className={input} />
+          <input name="text" placeholder="Their duties here, comma separated" aria-label="Their duties on this project" className={input} />
           <SubmitButton className="border border-line">Add</SubmitButton>
         </div>
       </form>

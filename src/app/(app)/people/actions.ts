@@ -1,16 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import {
-  acceptSuggestion,
-  dismissSuggestion,
-  linkToProject,
-  removePerson,
-  splitList,
-  unlinkFromProject,
-  updatePerson,
-  upsertPerson,
-} from "@/lib/people";
+import { acceptSuggestion, addDuty, dismissSuggestion, removeDuty, removePerson, splitList, unlinkFromProject, updateDuty, updatePerson, upsertPerson } from "@/lib/people";
 
 const str = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
 
@@ -18,20 +9,16 @@ export async function savePersonForm(form: FormData) {
   const name = str(form, "name");
   if (!name) return;
   const id = str(form, "id");
-  const fields = {
-    name,
-    email: str(form, "email") || null,
-    title: str(form, "title") || null,
-    team: str(form, "team") || null,
-    canHelpWith: splitList(str(form, "canHelpWith")),
-    notes: str(form, "notes") || null,
-  };
+  const fields = { name, email: str(form, "email") || null, title: str(form, "title") || null, team: str(form, "team") || null, notes: str(form, "notes") || null };
+  let personId = id;
   if (id) {
     await updatePerson(id, fields);
   } else {
-    const person = await upsertPerson(fields);
-    await updatePerson(person.id, { ...fields, canHelpWith: [...person.canHelpWith, ...fields.canHelpWith] });
+    personId = (await upsertPerson(fields)).id;
+    await updatePerson(personId, fields);
   }
+  // New people can list what they help with company-wide in one go.
+  for (const text of splitList(str(form, "helps"))) await addDuty({ personId, text });
   revalidatePath("/", "layout");
 }
 
@@ -40,18 +27,25 @@ export async function deletePerson(form: FormData) {
   revalidatePath("/", "layout");
 }
 
-/** Add someone (new or from the directory) to a project, with how they move it forward. */
-export async function addStakeholder(form: FormData) {
-  const projectId = str(form, "projectId");
+/** Add a duty to a person: for one project, or company-wide when no project is picked. */
+export async function newDuty(form: FormData) {
+  const projectId = str(form, "projectId") || null;
   const name = str(form, "name");
-  if (!projectId || !name) return;
-  const person = await upsertPerson({ name });
-  await linkToProject(projectId, person.id, str(form, "role") || null, true);
+  const personId = str(form, "personId") || (name ? (await upsertPerson({ name })).id : "");
+  if (!personId) return;
+  const texts = splitList(str(form, "text"));
+  if (!texts.length && projectId) await addDuty({ personId, projectId });
+  for (const text of texts) await addDuty({ personId, projectId, text });
   revalidatePath("/", "layout");
 }
 
-export async function setStakeholderRole(form: FormData) {
-  await linkToProject(str(form, "projectId"), str(form, "personId"), str(form, "role") || null, true);
+export async function editDuty(form: FormData) {
+  await updateDuty(str(form, "id"), str(form, "text"));
+  revalidatePath("/", "layout");
+}
+
+export async function deleteDuty(form: FormData) {
+  await removeDuty(str(form, "id"));
   revalidatePath("/", "layout");
 }
 

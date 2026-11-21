@@ -13,7 +13,7 @@ import { describeChange, ticketHistory } from "@/lib/jira-track";
 import { researchJira, type JiraSearcher } from "@/lib/jira-research";
 import { portfolio, portfolioText } from "@/lib/portfolio";
 import { addReminder, dayKey, openReminders, remindersText, setReminderStatus } from "@/lib/reminders";
-import { directory, linkToProject, personLine, updatePerson, upsertPerson, type DirectoryEntry } from "@/lib/people";
+import { addDuty, directory, personLine, updatePerson, upsertPerson, type DirectoryEntry } from "@/lib/people";
 
 export type ChatTool = {
   name: string;
@@ -295,8 +295,8 @@ export function chatTools(llm: StructuredLLM, jira: JiraReader | null = null, se
     tool({
       name: "find_people",
       description:
-        "Search the owner's people directory: who someone is, who can help with or unblock a topic ('who knows PCI?', 'who can approve the budget?'), and who moves each project forward. Empty query lists everyone.",
-      inputSchema: z.object({ query: z.string().describe("A name, team or topic; '' for everyone") }),
+        "Search the owner's people directory. Each person has duties: what they do or can help with, each on a project or company-wide, and one person can hold many across projects. Use it to answer 'who knows PCI?', 'who can approve the budget?', 'who are the stakeholders on X?', and to suggest who could unblock something. Matches names, titles, teams, notes, duties and project names. Empty query lists everyone.",
+      inputSchema: z.object({ query: z.string().describe("A name, team, topic or project name; '' for everyone") }),
       run: async ({ query }) => {
         let rows = await directory(query);
         if (!rows.length && query.includes(" ")) {
@@ -312,25 +312,21 @@ export function chatTools(llm: StructuredLLM, jira: JiraReader | null = null, se
     tool({
       name: "save_person",
       description:
-        "Save what the owner tells you about someone in the people directory: what they do, their team, what they can help with, and optionally how they move a project forward. Use only the owner's own words, not facts from items (ISA suggests those separately for the owner to accept).",
+        "Save what the owner tells you about someone: what they do, their team, and any number of duties, each on a project or company-wide. Use only the owner's own words, not facts from items (ISA suggests those separately for the owner to accept).",
       inputSchema: z.object({
         name: z.string(),
         email: z.string().nullable(),
         title: z.string().nullable().describe("What they do"),
         team: z.string().nullable(),
-        canHelpWith: z.array(z.string()).describe("Topics to add; [] for none"),
-        projectId: z.string().nullable().describe("A project they move forward, or null"),
-        projectRole: z.string().nullable().describe("How they move that project forward"),
+        duties: z
+          .array(z.object({ text: z.string().describe("e.g. 'Approves scope changes', 'PCI compliance'"), projectId: z.string().nullable().describe("The project it applies to, or null for company-wide") }))
+          .describe("Duties to add; [] for none"),
       }),
       run: async (input) => {
         const person = await upsertPerson({ name: input.name, email: input.email });
-        await updatePerson(person.id, {
-          title: input.title ?? undefined,
-          team: input.team ?? undefined,
-          canHelpWith: input.canHelpWith.length ? [...person.canHelpWith, ...input.canHelpWith] : undefined,
-        });
-        if (input.projectId) await linkToProject(input.projectId, person.id, input.projectRole, true);
-        return `Saved ${person.name}.`;
+        await updatePerson(person.id, { title: input.title ?? undefined, team: input.team ?? undefined });
+        for (const d of input.duties) await addDuty({ personId: person.id, projectId: d.projectId, text: d.text });
+        return `Saved ${person.name}${input.duties.length ? ` with ${input.duties.length} duties` : ""}.`;
       },
     }),
     tool({

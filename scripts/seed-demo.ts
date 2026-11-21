@@ -2,7 +2,7 @@ import "dotenv/config";
 import { db, schema } from "../src/db";
 import type { Plan } from "../src/lib/plan";
 import { saveSettings, getSettings } from "../src/lib/settings";
-import { addProjectPeople, findPerson, updatePerson, upsertPerson } from "../src/lib/people";
+import { addDuty, findPerson, updatePerson, upsertPerson } from "../src/lib/people";
 
 // Demo story: one product manager, Marina, keeps three projects on track with ISA.
 // - Checkout redesign is at risk: a client call changed a requirement, Jira still has the old
@@ -25,7 +25,7 @@ async function main() {
   const ago = (ms: number) => new Date(now - ms);
   const inDays = (d: number) => new Date(new Date(now + d * DAY).toISOString().slice(0, 10) + "T12:00:00Z");
 
-  for (const t of [schema.personSuggestions, schema.projectPeople, schema.people, schema.reminders, schema.ticketChanges, schema.jiraTickets, schema.actions, schema.proposals, schema.eventProjects, schema.chatMessages, schema.projectRules, schema.requirements, schema.events, schema.projects]) {
+  for (const t of [schema.personSuggestions, schema.personDuties, schema.people, schema.reminders, schema.ticketChanges, schema.jiraTickets, schema.actions, schema.proposals, schema.eventProjects, schema.chatMessages, schema.projectRules, schema.requirements, schema.events, schema.projects]) {
     await db.delete(t);
   }
   await saveSettings({ ...(await getSettings()), ownerName: "Marina Alves" });
@@ -153,24 +153,46 @@ async function main() {
   ]);
 
   // The people directory: stakeholders per project, plus people across the company who can help.
-  await addProjectPeople(checkout.id, [{ ...people.rafael, role: "Signs off scope and budget" }, { ...people.joao, role: "Builds it; needs the provider contract to start Pix" }]);
-  await addProjectPeople(api.id, [{ ...people.bruno, role: "Owns rate limits and webhooks" }, { ...people.priya, role: "First partner to go live; tests in sandbox" }]);
-  await addProjectPeople(mobile.id, [{ ...people.lia, role: "Owns the onboarding flow design" }]);
-  const titles: Record<string, { title: string; team: string; canHelpWith: string[] }> = {
-    "Rafael Costa": { title: "Head of e-commerce, Loja Viva", team: "Client", canHelpWith: ["Black Friday data", "Payment provider contract"] },
-    "João Lima": { title: "Tech lead", team: "Checkout", canHelpWith: ["Payment provider APIs", "Pix"] },
-    "Bruno Reis": { title: "Backend engineer", team: "Platform", canHelpWith: ["API load testing", "OAuth"] },
-    "Priya Nair": { title: "Partner integrations", team: "Globex", canHelpWith: ["Partner sandbox testing"] },
-    "Lia Santos": { title: "Product designer", team: "Mobile", canHelpWith: ["Onboarding UX", "Design system"] },
+  const titles: Record<string, { title: string; team: string }> = {
+    "Rafael Costa": { title: "Head of e-commerce, Loja Viva", team: "Client" },
+    "João Lima": { title: "Tech lead", team: "Checkout" },
+    "Bruno Reis": { title: "Backend engineer", team: "Platform" },
+    "Priya Nair": { title: "Partner integrations", team: "Globex" },
+    "Lia Santos": { title: "Product designer", team: "Mobile" },
+    "Carla Mendes": { title: "Security and compliance lead", team: "Security" },
+    "Tiago Alves": { title: "Finance manager", team: "Finance" },
   };
+  const ids: Record<string, string> = {};
   for (const [name, t] of Object.entries(titles)) {
     const p = await upsertPerson({ name });
     await updatePerson(p.id, t);
+    ids[name] = p.id;
   }
-  const carla = await upsertPerson({ name: "Carla Mendes", email: "carla@isa-demo.example" });
-  await updatePerson(carla.id, { title: "Security and compliance lead", team: "Security", canHelpWith: ["PCI compliance", "Card data storage", "Security reviews"], notes: "Prefers a short written brief before a call." });
-  const tiago = await upsertPerson({ name: "Tiago Alves" });
-  await updatePerson(tiago.id, { title: "Finance manager", team: "Finance", canHelpWith: ["Budget approvals", "Vendor contracts"] });
+  await updatePerson(ids["Carla Mendes"], { notes: "Prefers a short written brief before a call." });
+  // One person, many duties, across projects and company-wide.
+  const duties: [string, string | null, string][] = [
+    ["Rafael Costa", checkout.id, "Signs off scope and budget"],
+    ["Rafael Costa", checkout.id, "Shares Black Friday sales data"],
+    ["Rafael Costa", null, "Payment provider contract at Loja Viva"],
+    ["João Lima", checkout.id, "Builds checkout; needs the provider contract to start Pix"],
+    ["João Lima", api.id, "Reviews webhook payloads for checkout events"],
+    ["João Lima", null, "Payment provider APIs"],
+    ["Bruno Reis", api.id, "Owns rate limits and webhooks"],
+    ["Bruno Reis", api.id, "Runs the API load tests"],
+    ["Bruno Reis", mobile.id, "Social login backend"],
+    ["Bruno Reis", null, "OAuth"],
+    ["Priya Nair", api.id, "First partner to go live; tests in sandbox"],
+    ["Lia Santos", mobile.id, "Owns the onboarding flow design"],
+    ["Lia Santos", checkout.id, "Reviews mobile web checkout layout"],
+    ["Lia Santos", null, "Design system"],
+    ["Carla Mendes", checkout.id, "Security review of card storage (PCI)"],
+    ["Carla Mendes", api.id, "Approves OAuth scopes for partners"],
+    ["Carla Mendes", null, "PCI compliance"],
+    ["Carla Mendes", null, "Security reviews"],
+    ["Tiago Alves", checkout.id, "Approves extra budget for the payment provider"],
+    ["Tiago Alves", null, "Vendor contracts"],
+  ];
+  for (const [name, projectId, text] of duties) await addDuty({ personId: ids[name], projectId, text });
   await db.insert(schema.personSuggestions).values([
     { eventId: call.id, projectId: checkout.id, personId: null, name: "Fernanda Rocha", kind: "moves_project", text: "Approves payment provider contracts at Loja Viva", quote: "Fernanda in legal still has to approve the provider contract." },
     { eventId: slack.id, projectId: api.id, personId: (await findPerson({ name: "Bruno Reis" }))?.id ?? null, name: "Bruno Reis", kind: "can_help", text: "Rate limiting at the gateway", quote: "I set up the gateway rate limits for v1, I can do the per-tier ones." },

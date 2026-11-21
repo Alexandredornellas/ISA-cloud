@@ -6,7 +6,7 @@ import { db, schema } from "@/db";
 import { processEvent } from "@/lib/brain/pipeline";
 import type { StructuredLLM } from "@/lib/brain/llm";
 import { projectBlock } from "@/lib/brain/context";
-import { acceptSuggestion, addProjectPeople, directory, dismissSuggestion, pendingSuggestions, stakeholders, upsertPerson } from "@/lib/people";
+import { acceptSuggestion, addDuty, addProjectPeople, personLine, unlinkFromProject, directory, dismissSuggestion, pendingSuggestions, stakeholders, upsertPerson } from "@/lib/people";
 
 beforeAll(async () => {
   const sql = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} });
@@ -16,7 +16,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await db.delete(schema.personSuggestions);
-  await db.delete(schema.projectPeople);
+  await db.delete(schema.personDuties);
   await db.delete(schema.people);
   await db.delete(schema.reminders);
   await db.delete(schema.proposals);
@@ -48,8 +48,8 @@ describe("people directory", () => {
     await addProjectPeople(project.id, [{ name: "Ana Costa", email: null, slackUserId: "U1", role: "Approves design" }]);
     await addProjectPeople(project.id, [{ name: "Ana Costa", email: null, slackUserId: null, role: "Something else" }]);
     const team = await stakeholders(project.id);
-    expect(team.map((p) => [p.name, p.role])).toEqual([["Ana Costa", "Approves design"]]);
-    expect(await projectBlock(project.id)).toContain("Ana Costa (on this project: Approves design");
+    expect(team.map((p) => [p.name, p.here.map((d) => d.text)])).toEqual([["Ana Costa", ["Approves design", "Something else"]]]);
+    expect(await projectBlock(project.id)).toContain("Ana Costa (on this project: Approves design, Something else");
   });
 
   it("turns what ISA hears into suggestions that change nothing until accepted", async () => {
@@ -85,10 +85,34 @@ describe("people directory", () => {
 
     const people = await directory();
     const carla = people.find((p) => p.name === "Carla Mendes")!;
-    expect(carla.canHelpWith).toEqual(["PCI compliance"]);
+    expect(carla.duties.map((d) => [d.text, d.projectId])).toEqual([["PCI compliance", null]]);
     expect(carla.title).toBeNull();
-    expect((await stakeholders(project.id)).map((p) => [p.name, p.role])).toEqual([["Bruno Lima", "Signs off checkout scope and budget"]]);
+    expect((await stakeholders(project.id)).map((p) => [p.name, p.here.map((d) => d.text)])).toEqual([["Bruno Lima", ["Signs off checkout scope and budget"]]]);
     expect(await pendingSuggestions()).toEqual([]);
     expect((await directory("pci")).map((p) => p.name)).toEqual(["Carla Mendes"]);
+  });
+
+  it("lets one person hold many duties across projects and company-wide", async () => {
+    const [a] = await db.insert(schema.projects).values({ name: "Checkout" }).returning();
+    const [b] = await db.insert(schema.projects).values({ name: "Partner API" }).returning();
+    const carla = await upsertPerson({ name: "Carla Mendes" });
+    await addDuty({ personId: carla.id, projectId: a.id });
+    expect((await stakeholders(a.id))[0].here.map((d) => d.text)).toEqual(["Stakeholder"]);
+    await addDuty({ personId: carla.id, projectId: a.id, text: "Security review of card storage" });
+    await addDuty({ personId: carla.id, projectId: a.id, text: "security review of card storage" });
+    await addDuty({ personId: carla.id, projectId: b.id, text: "Approves OAuth scopes" });
+    await addDuty({ personId: carla.id, text: "PCI compliance" });
+    expect((await stakeholders(a.id))[0].here.map((d) => d.text)).toEqual(["Security review of card storage"]);
+    const [entry] = await directory("oauth");
+    expect(entry.duties.map((d) => [d.text, d.projectName])).toEqual([
+      ["PCI compliance", null],
+      ["Security review of card storage", "Checkout"],
+      ["Approves OAuth scopes", "Partner API"],
+    ]);
+    expect((await directory("partner api")).map((p) => p.name)).toEqual(["Carla Mendes"]);
+    expect(personLine(entry)).toContain("PCI compliance [company-wide]; Security review of card storage [Checkout]; Approves OAuth scopes [Partner API]");
+    await unlinkFromProject(a.id, carla.id);
+    expect(await stakeholders(a.id)).toEqual([]);
+    expect((await stakeholders(b.id)).map((p) => p.name)).toEqual(["Carla Mendes"]);
   });
 });

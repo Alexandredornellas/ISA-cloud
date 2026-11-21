@@ -1,7 +1,8 @@
-// The people directory: who everyone is, what they can help with, and who moves each project
-// forward. The owner keeps it; ISA suggests facts from what it captures and the owner accepts them.
-// Internal to ISA: nothing here contacts anyone.
-import { and, asc, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
+// The people directory: who everyone is, and their duties: what they do or can help with, each
+// for one project or company-wide. One person can hold many duties across many projects. The owner
+// keeps it; ISA suggests facts from what it captures and the owner accepts them. Internal to ISA:
+// nothing here contacts anyone.
+import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Person, PersonNote } from "@/lib/plan";
 
@@ -57,20 +58,42 @@ export async function upsertPerson(p: { name: string; email?: string | null; sla
   return row;
 }
 
-/** Link a person to a project; a given role replaces an empty one only unless `replace`. */
-export async function linkToProject(projectId: string, personId: string, role?: string | null, replace = false) {
-  const [existing] = await db
+export type DutyRow = typeof schema.personDuties.$inferSelect;
+/** Placeholder duty for someone on a project whose part is not known yet. */
+export const STAKEHOLDER = "Stakeholder";
+
+/**
+ * Give a person a duty, on a project or company-wide (projectId null). The same duty is not added
+ * twice, and a real duty on a project replaces the "Stakeholder" placeholder there.
+ */
+export async function addDuty(input: { personId: string; projectId?: string | null; text?: string | null; eventId?: string | null; quote?: string | null }): Promise<DutyRow | null> {
+  const projectId = input.projectId || null;
+  const text = clean(input.text)?.slice(0, 200) ?? (projectId ? STAKEHOLDER : null);
+  if (!text) return null;
+  const same = await db
     .select()
-    .from(schema.projectPeople)
-    .where(and(eq(schema.projectPeople.projectId, projectId), eq(schema.projectPeople.personId, personId)));
-  if (existing) {
-    const next = replace ? clean(role) ?? existing.role : existing.role ?? clean(role);
-    if (next !== existing.role) {
-      await db.update(schema.projectPeople).set({ role: next, updatedAt: new Date() }).where(eq(schema.projectPeople.id, existing.id));
-    }
-    return;
-  }
-  await db.insert(schema.projectPeople).values({ projectId, personId, role: clean(role) }).onConflictDoNothing();
+    .from(schema.personDuties)
+    .where(and(eq(schema.personDuties.personId, input.personId), projectId ? eq(schema.personDuties.projectId, projectId) : isNull(schema.personDuties.projectId)));
+  const dup = same.find((d) => d.text.toLowerCase() === text.toLowerCase());
+  if (dup) return dup;
+  if (text === STAKEHOLDER && same.length) return same[0];
+  const placeholders = same.filter((d) => d.text === STAKEHOLDER).map((d) => d.id);
+  if (placeholders.length) await db.delete(schema.personDuties).where(inArray(schema.personDuties.id, placeholders));
+  const [row] = await db
+    .insert(schema.personDuties)
+    .values({ personId: input.personId, projectId, text, eventId: input.eventId ?? null, quote: clean(input.quote)?.slice(0, 500) ?? null })
+    .returning();
+  return row;
+}
+
+export async function updateDuty(id: string, text: string) {
+  const t = clean(text);
+  if (!t) return removeDuty(id);
+  await db.update(schema.personDuties).set({ text: t.slice(0, 200), updatedAt: new Date() }).where(eq(schema.personDuties.id, id));
+}
+
+export async function removeDuty(id: string) {
+  await db.delete(schema.personDuties).where(eq(schema.personDuties.id, id));
 }
 
 /** Record the people a plan names as a project's stakeholders (called when a plan runs). */
@@ -78,18 +101,17 @@ export async function addProjectPeople(projectId: string, list: Person[]) {
   for (const p of list) {
     if (!p.name?.trim()) continue;
     const person = await upsertPerson({ name: p.name, email: p.email, slackUserId: p.slackUserId });
-    await linkToProject(projectId, person.id, p.role);
+    await addDuty({ personId: person.id, projectId, text: p.role });
   }
 }
 
-export async function updatePerson(id: string, input: { name?: string; email?: string | null; title?: string | null; team?: string | null; canHelpWith?: string[]; notes?: string | null }) {
+export async function updatePerson(id: string, input: { name?: string; email?: string | null; title?: string | null; team?: string | null; notes?: string | null }) {
   const set: Partial<typeof schema.people.$inferInsert> = { updatedAt: new Date() };
   if (input.name !== undefined && input.name.trim()) set.name = input.name.trim().slice(0, 120);
   if (input.email !== undefined) set.email = clean(input.email);
   if (input.title !== undefined) set.title = clean(input.title);
   if (input.team !== undefined) set.team = clean(input.team);
   if (input.notes !== undefined) set.notes = clean(input.notes);
-  if (input.canHelpWith !== undefined) set.canHelpWith = dedupe(input.canHelpWith);
   await db.update(schema.people).set(set).where(eq(schema.people.id, id));
 }
 
@@ -97,26 +119,41 @@ export async function removePerson(id: string) {
   await db.delete(schema.people).where(eq(schema.people.id, id));
 }
 
+/** Take someone off a project: removes their duties there. */
 export async function unlinkFromProject(projectId: string, personId: string) {
-  await db.delete(schema.projectPeople).where(and(eq(schema.projectPeople.projectId, projectId), eq(schema.projectPeople.personId, personId)));
-}
-
-function dedupe(list: string[]): string[] {
-  const out: string[] = [];
-  for (const s of list.map((x) => x.trim()).filter(Boolean)) {
-    if (!out.some((o) => o.toLowerCase() === s.toLowerCase())) out.push(s.slice(0, 120));
-  }
-  return out.slice(0, 30);
+  await db.delete(schema.personDuties).where(and(eq(schema.personDuties.projectId, projectId), eq(schema.personDuties.personId, personId)));
 }
 
 /** Split "a, b; c" typed by the owner into a list. */
 export function splitList(text: string): string[] {
-  return dedupe(text.split(/[,;\n]/));
+  const out: string[] = [];
+  for (const s of text.split(/[,;\n]/).map((x) => x.trim()).filter(Boolean)) {
+    if (!out.some((o) => o.toLowerCase() === s.toLowerCase())) out.push(s.slice(0, 200));
+  }
+  return out.slice(0, 30);
 }
 
-export type DirectoryEntry = PersonRow & { projects: { id: string; name: string; role: string | null }[] };
+export type Duty = { id: string; text: string; projectId: string | null; projectName: string | null; quote: string | null };
+export type DirectoryEntry = PersonRow & { duties: Duty[] };
 
-/** Everyone, or those matching a search over name, title, team, notes and what they help with. */
+async function dutiesOf(personIds: string[]): Promise<Map<string, Duty[]>> {
+  const out = new Map<string, Duty[]>();
+  if (!personIds.length) return out;
+  const rows = await db
+    .select({ d: schema.personDuties, projectName: schema.projects.name })
+    .from(schema.personDuties)
+    .leftJoin(schema.projects, eq(schema.projects.id, schema.personDuties.projectId))
+    .where(inArray(schema.personDuties.personId, personIds))
+    .orderBy(sql`${schema.projects.name} asc nulls first`, asc(schema.personDuties.createdAt));
+  for (const r of rows) {
+    const list = out.get(r.d.personId) ?? [];
+    list.push({ id: r.d.id, text: r.d.text, projectId: r.d.projectId, projectName: r.projectName, quote: r.d.quote });
+    out.set(r.d.personId, list);
+  }
+  return out;
+}
+
+/** Everyone, or those matching a search over name, title, team, notes and any of their duties. */
 export async function directory(query?: string | null): Promise<DirectoryEntry[]> {
   const q = clean(query);
   const like = q ? `%${q.replace(/[%_]/g, "")}%` : null;
@@ -130,31 +167,27 @@ export async function directory(query?: string | null): Promise<DirectoryEntry[]
             ilike(schema.people.title, like),
             ilike(schema.people.team, like),
             ilike(schema.people.notes, like),
-            sql`${schema.people.canHelpWith}::text ilike ${like}`,
+            sql`exists (select 1 from ${schema.personDuties} d left join ${schema.projects} pr on pr.id = d.project_id where d.person_id = ${schema.people.id} and (d.text ilike ${like} or pr.name ilike ${like}))`,
           )
         : undefined,
     )
     .orderBy(asc(schema.people.name));
-  if (!rows.length) return [];
-  const links = await db
-    .select({ personId: schema.projectPeople.personId, id: schema.projects.id, name: schema.projects.name, role: schema.projectPeople.role })
-    .from(schema.projectPeople)
-    .innerJoin(schema.projects, eq(schema.projects.id, schema.projectPeople.projectId))
-    .where(inArray(schema.projectPeople.personId, rows.map((r) => r.id)));
-  return rows.map((r) => ({ ...r, projects: links.filter((l) => l.personId === r.id).map(({ id, name, role }) => ({ id, name, role })) }));
+  const duties = await dutiesOf(rows.map((r) => r.id));
+  return rows.map((r) => ({ ...r, duties: duties.get(r.id) ?? [] }));
 }
 
-export type Stakeholder = PersonRow & { role: string | null };
+export type Stakeholder = DirectoryEntry & { here: Duty[] };
 
-/** A project's stakeholders: who moves it forward, and how. */
+/** A project's stakeholders: everyone with a duty on it, with those duties first. */
 export async function stakeholders(projectId: string): Promise<Stakeholder[]> {
-  const rows = await db
-    .select({ person: schema.people, role: schema.projectPeople.role })
-    .from(schema.projectPeople)
-    .innerJoin(schema.people, eq(schema.people.id, schema.projectPeople.personId))
-    .where(eq(schema.projectPeople.projectId, projectId))
-    .orderBy(asc(schema.people.name));
-  return rows.map((r) => ({ ...r.person, role: r.role }));
+  const ids = await db.selectDistinct({ id: schema.personDuties.personId }).from(schema.personDuties).where(eq(schema.personDuties.projectId, projectId));
+  if (!ids.length) return [];
+  const rows = await db.select().from(schema.people).where(inArray(schema.people.id, ids.map((i) => i.id))).orderBy(asc(schema.people.name));
+  const duties = await dutiesOf(rows.map((r) => r.id));
+  return rows.map((r) => {
+    const all = duties.get(r.id) ?? [];
+    return { ...r, duties: all, here: all.filter((d) => d.projectId === projectId) };
+  });
 }
 
 /** Save what an item says about people, as suggestions for the owner. Skips what is already known. */
@@ -171,7 +204,7 @@ export async function savePersonNotes(eventId: string, notes: PersonNote[], proj
     const projectId = n.projectId && projectIds.has(n.projectId) ? n.projectId : null;
     if (n.kind === "moves_project" && !projectId) continue;
     const person = await findPerson({ name: n.name, email: n.email });
-    if (person && alreadyKnown(person, n.kind as SuggestionKind, n.text)) continue;
+    if (person && (await alreadyKnown(person, n.kind as SuggestionKind, n.text, projectId))) continue;
     await db.insert(schema.personSuggestions).values({
       eventId,
       projectId,
@@ -187,11 +220,12 @@ export async function savePersonNotes(eventId: string, notes: PersonNote[], proj
   return added;
 }
 
-function alreadyKnown(p: PersonRow, kind: SuggestionKind, text: string) {
+async function alreadyKnown(p: PersonRow, kind: SuggestionKind, text: string, projectId: string | null) {
   const t = text.trim().toLowerCase();
   if (kind === "role") return p.title?.toLowerCase() === t;
-  if (kind === "can_help") return p.canHelpWith.some((c) => c.toLowerCase() === t);
-  return false;
+  const duties = (await dutiesOf([p.id])).get(p.id) ?? [];
+  const scope = kind === "moves_project" ? projectId : null;
+  return duties.some((d) => d.text.toLowerCase() === t && (kind === "can_help" || d.projectId === scope));
 }
 
 export type SuggestionView = SuggestionRow & { projectName: string | null; source: { source: string; title: string; url: string | null; at: Date } | null };
@@ -223,8 +257,7 @@ export async function acceptSuggestion(id: string, editedText?: string | null) {
     ? (await db.query.people.findFirst({ where: eq(schema.people.id, s.personId) })) ?? (await upsertPerson({ name: s.name, email: s.email }))
     : await upsertPerson({ name: s.name, email: s.email });
   if (s.kind === "role") await updatePerson(person.id, { title: text });
-  else if (s.kind === "can_help") await updatePerson(person.id, { canHelpWith: [...person.canHelpWith, text] });
-  if (s.projectId) await linkToProject(s.projectId, person.id, s.kind === "moves_project" ? text : null, s.kind === "moves_project");
+  else await addDuty({ personId: person.id, projectId: s.kind === "moves_project" ? s.projectId : null, text, eventId: s.eventId, quote: s.quote });
   await db.update(schema.personSuggestions).set({ status: "accepted", personId: person.id, text, updatedAt: new Date() }).where(eq(schema.personSuggestions.id, id));
 }
 
@@ -232,17 +265,17 @@ export async function dismissSuggestion(id: string) {
   await db.update(schema.personSuggestions).set({ status: "dismissed", updatedAt: new Date() }).where(eq(schema.personSuggestions.id, id));
 }
 
-/** One person as a line of text for Claude. */
-export function personLine(p: PersonRow & { role?: string | null; projects?: { name: string; role: string | null }[] }): string {
+/** One person as a line of text for Claude, with each duty and where it applies. */
+export function personLine(p: PersonRow & { duties?: Duty[]; here?: Duty[] }): string {
+  const scope = (d: Duty) => (d.projectName ? `${d.text} [${d.projectName}]` : `${d.text} [company-wide]`);
   const bits = [
-    p.role ? `on this project: ${p.role}` : null,
+    p.here?.length ? `on this project: ${p.here.map((d) => d.text).join(", ")}` : null,
     p.title,
     p.team ? `team ${p.team}` : null,
-    p.canHelpWith.length ? `can help with ${p.canHelpWith.join(", ")}` : null,
-    p.projects?.length ? `projects: ${p.projects.map((x) => (x.role ? `${x.name} (${x.role})` : x.name)).join(", ")}` : null,
+    p.duties?.length ? `duties: ${p.duties.filter((d) => !p.here?.includes(d)).map(scope).join("; ")}` : null,
     p.email,
     p.slackUserId ? `Slack ${p.slackUserId}` : null,
     p.notes ? `notes: ${p.notes}` : null,
-  ].filter(Boolean);
+  ].filter((b) => b && b !== "duties: ");
   return bits.length ? `${p.name} (${bits.join("; ")})` : p.name;
 }

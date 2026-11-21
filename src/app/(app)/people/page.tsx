@@ -1,3 +1,5 @@
+import { desc } from "drizzle-orm";
+import { db, schema } from "@/db";
 import { directory, pendingSuggestions } from "@/lib/people";
 import { AddPersonForm, PersonCard, SuggestionList } from "@/components/People";
 
@@ -5,12 +7,16 @@ export const dynamic = "force-dynamic";
 
 export default async function PeoplePage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
   const { q } = await searchParams;
-  const [people, suggestions] = await Promise.all([directory(q), pendingSuggestions()]);
+  const [people, suggestions, projects] = await Promise.all([
+    directory(q),
+    pendingSuggestions(),
+    db.select({ id: schema.projects.id, name: schema.projects.name }).from(schema.projects).orderBy(desc(schema.projects.updatedAt)),
+  ]);
   return (
     <div className="mx-auto max-w-3xl px-4 py-7 sm:px-8">
       <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">People</h1>
       <p className="mt-1 text-sm text-muted">
-        Who does what across the company, what they can help with, and who moves each project forward. You keep this list. ISA suggests what she hears in meetings, email and Slack, and saves it only when you say so.
+        Who does what across the company. One person can hold many duties, on many projects or company-wide. You keep this list. ISA suggests what she hears in meetings, email and Slack, and saves it only when you say so.
       </p>
 
       {suggestions.length ? (
@@ -25,7 +31,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
           <input
             name="q"
             defaultValue={q ?? ""}
-            placeholder="Who can help with… e.g. PCI, budget, Android"
+            placeholder="Who can help with… e.g. PCI, budget, a project name"
             aria-label="Search people"
             className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 py-2 text-sm"
           />
@@ -35,7 +41,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
         {people.length ? (
           <ul className="mt-3 divide-y divide-line rounded-xl border border-line bg-surface">
             {people.map((p) => (
-              <PersonCard key={p.id} person={p} />
+              <PersonCard key={p.id} person={p} projects={projects} />
             ))}
           </ul>
         ) : (

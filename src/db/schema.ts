@@ -332,30 +332,30 @@ export const people = pgTable(
     // What they do, e.g. "Head of Payments".
     title: text("title"),
     team: text("team"),
-    // What they can help with or unblock, e.g. ["PCI compliance", "Stripe contract"].
-    canHelpWith: jsonb("can_help_with").$type<string[]>().notNull().default([]),
     notes: text("notes"),
     ...timestamps,
   },
   (t) => [index("people_email_idx").on(t.email)],
 );
 
-// The stakeholders who can move a project forward, and how.
-export const projectPeople = pgTable(
-  "project_people",
+// What each person does or can help with: many per person, each for one project or company-wide
+// (projectId null). A person is a project's stakeholder when they have a duty on it.
+export const personDuties = pgTable(
+  "person_duties",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    projectId: uuid("project_id")
-      .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
     personId: uuid("person_id")
       .notNull()
       .references(() => people.id, { onDelete: "cascade" }),
-    // How they move this project forward, e.g. "Approves scope changes".
-    role: text("role"),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    // e.g. "Approves scope changes", "PCI compliance", "Stakeholder" when nothing more is known.
+    text: text("text").notNull(),
+    // The item it was learned from, when ISA suggested it.
+    eventId: uuid("event_id").references(() => events.id, { onDelete: "set null" }),
+    quote: text("quote"),
     ...timestamps,
   },
-  (t) => [uniqueIndex("project_people_unique").on(t.projectId, t.personId)],
+  (t) => [index("person_duties_person_idx").on(t.personId), index("person_duties_project_idx").on(t.projectId)],
 );
 
 // Facts about people that ISA noticed in meetings, email or Slack, waiting for the owner.
