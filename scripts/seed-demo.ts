@@ -2,6 +2,7 @@ import "dotenv/config";
 import { db, schema } from "../src/db";
 import type { Plan } from "../src/lib/plan";
 import { saveSettings, getSettings } from "../src/lib/settings";
+import { addProjectPeople, findPerson, updatePerson, upsertPerson } from "../src/lib/people";
 
 // Demo story: one product manager, Marina, keeps three projects on track with ISA.
 // - Checkout redesign is at risk: a client call changed a requirement, Jira still has the old
@@ -24,7 +25,7 @@ async function main() {
   const ago = (ms: number) => new Date(now - ms);
   const inDays = (d: number) => new Date(new Date(now + d * DAY).toISOString().slice(0, 10) + "T12:00:00Z");
 
-  for (const t of [schema.reminders, schema.ticketChanges, schema.jiraTickets, schema.actions, schema.proposals, schema.eventProjects, schema.chatMessages, schema.projectRules, schema.requirements, schema.events, schema.projects]) {
+  for (const t of [schema.personSuggestions, schema.projectPeople, schema.people, schema.reminders, schema.ticketChanges, schema.jiraTickets, schema.actions, schema.proposals, schema.eventProjects, schema.chatMessages, schema.projectRules, schema.requirements, schema.events, schema.projects]) {
     await db.delete(t);
   }
   await saveSettings({ ...(await getSettings()), ownerName: "Marina Alves" });
@@ -149,6 +150,30 @@ async function main() {
     { projectId: checkout.id, eventId: call.id, direction: "theirs", text: "Send the final payment provider contract", person: "Rafael Costa", due: inDays(-1), dueText: "tomorrow", quote: "I'll send the final contract with the payment provider tomorrow." },
     { projectId: api.id, eventId: email.id, direction: "mine", text: "Send Priya the API v2 changelog", person: "Priya Nair", due: inDays(0), dueText: "today", quote: "could you send me the API changelog today" },
     { projectId: api.id, eventId: mobileCall.id, direction: "theirs", text: "Share the API load-test results", person: "Bruno Reis", due: inDays(3), dueText: "on Monday", quote: "I'll share the load-test results for the API with Marina on Monday." },
+  ]);
+
+  // The people directory: stakeholders per project, plus people across the company who can help.
+  await addProjectPeople(checkout.id, [{ ...people.rafael, role: "Signs off scope and budget" }, { ...people.joao, role: "Builds it; needs the provider contract to start Pix" }]);
+  await addProjectPeople(api.id, [{ ...people.bruno, role: "Owns rate limits and webhooks" }, { ...people.priya, role: "First partner to go live; tests in sandbox" }]);
+  await addProjectPeople(mobile.id, [{ ...people.lia, role: "Owns the onboarding flow design" }]);
+  const titles: Record<string, { title: string; team: string; canHelpWith: string[] }> = {
+    "Rafael Costa": { title: "Head of e-commerce, Loja Viva", team: "Client", canHelpWith: ["Black Friday data", "Payment provider contract"] },
+    "João Lima": { title: "Tech lead", team: "Checkout", canHelpWith: ["Payment provider APIs", "Pix"] },
+    "Bruno Reis": { title: "Backend engineer", team: "Platform", canHelpWith: ["API load testing", "OAuth"] },
+    "Priya Nair": { title: "Partner integrations", team: "Globex", canHelpWith: ["Partner sandbox testing"] },
+    "Lia Santos": { title: "Product designer", team: "Mobile", canHelpWith: ["Onboarding UX", "Design system"] },
+  };
+  for (const [name, t] of Object.entries(titles)) {
+    const p = await upsertPerson({ name });
+    await updatePerson(p.id, t);
+  }
+  const carla = await upsertPerson({ name: "Carla Mendes", email: "carla@isa-demo.example" });
+  await updatePerson(carla.id, { title: "Security and compliance lead", team: "Security", canHelpWith: ["PCI compliance", "Card data storage", "Security reviews"], notes: "Prefers a short written brief before a call." });
+  const tiago = await upsertPerson({ name: "Tiago Alves" });
+  await updatePerson(tiago.id, { title: "Finance manager", team: "Finance", canHelpWith: ["Budget approvals", "Vendor contracts"] });
+  await db.insert(schema.personSuggestions).values([
+    { eventId: call.id, projectId: checkout.id, personId: null, name: "Fernanda Rocha", kind: "moves_project", text: "Approves payment provider contracts at Loja Viva", quote: "Fernanda in legal still has to approve the provider contract." },
+    { eventId: slack.id, projectId: api.id, personId: (await findPerson({ name: "Bruno Reis" }))?.id ?? null, name: "Bruno Reis", kind: "can_help", text: "Rate limiting at the gateway", quote: "I set up the gateway rate limits for v1, I can do the per-tier ones." },
   ]);
 
   console.log("Demo data loaded: Checkout redesign (at risk), Partner API v2 (needs attention), Mobile onboarding (on track).");

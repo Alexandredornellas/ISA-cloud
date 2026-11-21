@@ -8,6 +8,7 @@ import { ChannelView } from "@/components/ChannelView";
 import { Workspace, type PanelTab } from "@/components/Workspace";
 import { ActivityFeed } from "@/components/ActivityFeed";
 import { PeopleAndRules, RequirementList } from "@/components/ProjectPanels";
+import { pendingSuggestions, stakeholders } from "@/lib/people";
 import { clearChatMessages } from "./chat/actions";
 import { portfolio, projectHealth } from "@/lib/portfolio";
 import { Overview } from "@/components/Overview";
@@ -54,7 +55,9 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
         db.query.projectRules.findMany({ where: eq(schema.projectRules.projectId, projectId) }),
       ])
     : [[], []];
-  const health = projectId ? await projectHealth(projectId) : null;
+  const [health, team, suggested, everyone] = projectId
+    ? await Promise.all([projectHealth(projectId), stakeholders(projectId), pendingSuggestions(projectId), db.select({ name: schema.people.name }).from(schema.people)])
+    : [null, [], [], []];
   const open = requirements.filter((r) => r.status !== "done" && r.status !== "dropped").length;
   const tickets = requirements.filter((r) => r.jiraIssueKey).length;
 
@@ -64,7 +67,7 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
       ? [
           { id: "requirements", label: "Requirements", icon: "list" as const, count: open, content: <RequirementList requirements={requirements} projectId={project.id} /> },
           { id: "reminders", label: "Reminders", icon: "bell" as const, count: reminders.length, content: <ReminderList reminders={reminders} showProject={false} compact /> },
-          { id: "people", label: "People", icon: "users" as const, content: <PeopleAndRules projectId={project.id} people={project.people} rules={rules} /> },
+          { id: "people", label: "People", icon: "users" as const, count: suggested.length || undefined, content: <PeopleAndRules projectId={project.id} people={team} suggestions={suggested} names={everyone.map((p) => p.name)} rules={rules} /> },
         ]
       : []),
   ];

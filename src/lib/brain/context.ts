@@ -1,6 +1,7 @@
 import { asc, eq, ne, and } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { jiraBrowseUrl } from "@/lib/jira";
+import { personLine, stakeholders } from "@/lib/people";
 
 type EventRow = typeof schema.events.$inferSelect;
 
@@ -19,7 +20,7 @@ export async function projectsContext(): Promise<{ text: string; projectIds: Set
 export async function projectBlock(projectId: string): Promise<string> {
   const p = await db.query.projects.findFirst({ where: eq(schema.projects.id, projectId) });
   if (!p) throw new Error("Project not found");
-  const [reqs, rules, tickets] = await Promise.all([
+  const [reqs, rules, tickets, team] = await Promise.all([
     db.query.requirements.findMany({
       where: and(eq(schema.requirements.projectId, projectId), ne(schema.requirements.status, "dropped")),
       orderBy: asc(schema.requirements.createdAt),
@@ -29,13 +30,14 @@ export async function projectBlock(projectId: string): Promise<string> {
       orderBy: asc(schema.projectRules.createdAt),
     }),
     db.select({ key: schema.jiraTickets.key, issueType: schema.jiraTickets.issueType, epic: schema.jiraTickets.epic }).from(schema.jiraTickets).where(eq(schema.jiraTickets.projectId, projectId)),
+    stakeholders(projectId),
   ]);
   const ticketOf = new Map(tickets.map((t) => [t.key, t]));
   const lines = [
     `<project id="${p.id}">`,
     `Name: ${p.name}`,
     `Summary: ${p.summary || "(none)"}`,
-    `People: ${p.people.length ? p.people.map(personText).join("; ") : "(none recorded)"}`,
+    `People who move it forward: ${team.length ? team.map(personLine).join("; ") : p.people.length ? p.people.map(personText).join("; ") : "(none recorded)"}`,
     p.slackChannelId ? `Slack channel: ${p.slackChannelId}` : null,
     rules.length ? `Rules from the user:\n${rules.map((r) => `- ${r.text}`).join("\n")}` : null,
     "Requirements:",

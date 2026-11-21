@@ -10,7 +10,7 @@ import { Icon, type IconName } from "@/components/Icon";
  * The frame around every screen: a sidebar with Ask ISA, the projects (with what needs you in
  * each), Connections and Settings. On a phone the sidebar opens from the top bar.
  */
-export function AppShell({ channels, dueReminders, children }: { channels: Channel[]; dueReminders: number; children: React.ReactNode }) {
+export function AppShell({ channels, dueReminders, peopleSuggestions = 0, children }: { channels: Channel[]; dueReminders: number; peopleSuggestions?: number; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
 
   const total = channels.reduce((n, c) => n + c.count, 0) + dueReminders;
@@ -30,6 +30,7 @@ export function AppShell({ channels, dueReminders, children }: { channels: Chann
       <Item href="/" icon="grid" label="Overview" count={0} match="overview" />
       <Item href="/?c=general" icon="chat" label="Ask ISA" count={general?.count ?? 0} match="general" />
       <Item href="/reminders" icon="bell" label="Who owes what" count={dueReminders} match="/reminders" />
+      <Item href="/people" icon="users" label="People" count={peopleSuggestions} match="/people" />
 
       <p className="mt-4 flex items-center justify-between px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
         <span>Projects</span>

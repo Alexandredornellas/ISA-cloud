@@ -165,6 +165,16 @@ const CommitmentSchema = z.object({
   projectId: z.string().nullable(),
 });
 
+const PersonNoteSchema = z.object({
+  name: z.string(),
+  email: z.string().nullable(),
+  /** role: what they do. can_help: what they can help with or unblock. moves_project: how they move projectId forward. */
+  kind: z.enum(["role", "can_help", "moves_project"]),
+  text: z.string(),
+  projectId: z.string().nullable(),
+  quote: z.string(),
+});
+
 export const SortResultSchema = z.object({
   matches: z.array(SortMatchSchema),
   newProject: z
@@ -176,10 +186,12 @@ export const SortResultSchema = z.object({
     .array(z.string())
     .describe("2 or 3 short terms to search Jira for related tickets, including synonyms, e.g. MFA, two-factor, OTP"),
   commitments: z.array(CommitmentSchema).optional(),
+  peopleNotes: z.array(PersonNoteSchema).optional(),
   reason: z.string(),
 });
 export type SortResult = z.infer<typeof SortResultSchema>;
 export type Commitment = z.infer<typeof CommitmentSchema>;
+export type PersonNote = z.infer<typeof PersonNoteSchema>;
 
 /** What Claude fills in when sorting: empty strings instead of null, to keep the grammar small. */
 export const SortDraftSchema = SortResultSchema.extend({
@@ -196,6 +208,18 @@ export const SortDraftSchema = SortResultSchema.extend({
       }),
     )
     .describe("Things the owner promised or was asked to send or do, and things others promised the owner; empty when none"),
+  peopleNotes: z
+    .array(
+      z.object({
+        name: z.string().describe("The person's full name as the item gives it"),
+        email: z.string().describe('Their email when the item shows it, or ""'),
+        kind: z.enum(["role", "can_help", "moves_project"]),
+        text: z.string().describe("The fact, short, e.g. 'Head of Payments', 'PCI compliance', 'Approves checkout scope'"),
+        projectId: z.string().describe('For moves_project, the project from the list; otherwise the related project or ""'),
+        quote: z.string().describe("The words it came from, short"),
+      }),
+    )
+    .describe("Lasting facts about people: what they do, what they can help with, who moves a project forward; empty when none"),
 });
 
 export function fromSortDraft(d: z.infer<typeof SortDraftSchema>): SortResult {
@@ -209,6 +233,14 @@ export function fromSortDraft(d: z.infer<typeof SortDraftSchema>): SortResult {
       dueText: c.dueText.trim() || null,
       quote: c.quote,
       projectId: c.projectId.trim() || null,
+    })),
+    peopleNotes: (d.peopleNotes ?? []).map((n) => ({
+      name: n.name.trim(),
+      email: n.email.trim() || null,
+      kind: n.kind,
+      text: n.text.trim(),
+      projectId: n.projectId.trim() || null,
+      quote: n.quote,
     })),
   };
 }

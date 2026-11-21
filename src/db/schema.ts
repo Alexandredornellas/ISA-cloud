@@ -319,3 +319,61 @@ export const reminders = pgTable(
   },
   (t) => [index("reminders_status_idx").on(t.status)],
 );
+
+// Company-wide directory: who people are, what they do and what they can help with. The owner
+// keeps it by hand; ISA suggests additions from what it captures, and the owner accepts them.
+export const people = pgTable(
+  "people",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    email: text("email"),
+    slackUserId: text("slack_user_id"),
+    // What they do, e.g. "Head of Payments".
+    title: text("title"),
+    team: text("team"),
+    // What they can help with or unblock, e.g. ["PCI compliance", "Stripe contract"].
+    canHelpWith: jsonb("can_help_with").$type<string[]>().notNull().default([]),
+    notes: text("notes"),
+    ...timestamps,
+  },
+  (t) => [index("people_email_idx").on(t.email)],
+);
+
+// The stakeholders who can move a project forward, and how.
+export const projectPeople = pgTable(
+  "project_people",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    personId: uuid("person_id")
+      .notNull()
+      .references(() => people.id, { onDelete: "cascade" }),
+    // How they move this project forward, e.g. "Approves scope changes".
+    role: text("role"),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("project_people_unique").on(t.projectId, t.personId)],
+);
+
+// Facts about people that ISA noticed in meetings, email or Slack, waiting for the owner.
+export const personSuggestions = pgTable(
+  "person_suggestions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    eventId: uuid("event_id").references(() => events.id, { onDelete: "set null" }),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+    personId: uuid("person_id").references(() => people.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    email: text("email"),
+    // role: what they do. can_help: what they can help with. moves_project: how they move projectId forward.
+    kind: text("kind").notNull(),
+    text: text("text").notNull(),
+    quote: text("quote"),
+    status: text("status").notNull().default("pending"), // pending | accepted | dismissed
+    ...timestamps,
+  },
+  (t) => [index("person_suggestions_status_idx").on(t.status)],
+);

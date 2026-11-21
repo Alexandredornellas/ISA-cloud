@@ -10,6 +10,7 @@ import { openSprintNames, relatedTicketsBlock } from "@/lib/jira-research";
 import { asksDetails, getSettings, settingsText } from "@/lib/settings";
 import { keepToProject, owners } from "@/lib/ownership";
 import { saveCommitments } from "@/lib/reminders";
+import { savePersonNotes } from "@/lib/people";
 
 /** Ask Claude for a draft plan, with ticket details only when the owner's settings ask for them. */
 async function draft(llm: StructuredLLM, req: { system: string; context: string; input: string; effort: "low" | "medium" | "high" }): Promise<Plan> {
@@ -67,6 +68,7 @@ export async function processEvent(eventId: string, llm: StructuredLLM): Promise
     const terms = sort.searchTerms ?? [];
     // Like a secretary: what the item asks of the owner becomes a reminder (internal only).
     await saveCommitments(event.id, sort.commitments ?? [], projectIds);
+    await savePersonNotes(event.id, sort.peopleNotes ?? [], projectIds);
 
     const proposalIds: string[] = [];
     let unsure = false;

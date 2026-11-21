@@ -1,5 +1,6 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { addProjectPeople } from "@/lib/people";
 import type { Action, Person, Plan, TicketDetails } from "@/lib/plan";
 import { MissingIssueTypeError, type JiraClient } from "@/lib/jira";
 import { recordIsaWrite } from "@/lib/jira-track";
@@ -145,6 +146,7 @@ async function ensureProject(projectId: string | null, plan: Plan, eventIds: str
         .where(eq(schema.projects.id, id));
     }
   }
+  if (plan.people.length) await addProjectPeople(id, plan.people);
   if (eventIds.length) {
     await db
       .insert(schema.eventProjects)

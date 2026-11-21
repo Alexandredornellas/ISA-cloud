@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { StakeholderList, SuggestionList } from "@/components/People";
+import type { Stakeholder, SuggestionView } from "@/lib/people";
 import { addRule, removeRule, setRequirementStatus } from "@/app/(app)/projects/[id]/actions";
 import { SubmitButton } from "@/components/SubmitButton";
 
@@ -77,42 +79,32 @@ export function RequirementList({ requirements, projectId }: { requirements: Req
   );
 }
 
-/** Who is involved, and the standing rules ISA follows for this project. */
+/** Who moves the project forward, what ISA noticed about people, and the owner's standing rules. */
 export function PeopleAndRules({
   projectId,
   people,
+  suggestions,
+  names,
   rules,
 }: {
   projectId: string;
-  people: { name: string; role?: string | null; email?: string | null }[];
+  people: Stakeholder[];
+  suggestions: SuggestionView[];
+  names: string[];
   rules: { id: string; text: string }[];
 }) {
   return (
     <div className="space-y-6">
+      {suggestions.length ? (
+        <section>
+          <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted">ISA noticed · {suggestions.length}</h3>
+          <SuggestionList suggestions={suggestions} showProject={false} />
+        </section>
+      ) : null}
       <section>
-        <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted">People</h3>
-        {people.length ? (
-          <ul className="space-y-2">
-            {people.map((p) => (
-              <li key={p.name} className="flex items-center gap-2.5 text-sm">
-                <span aria-hidden="true" className="inline-flex h-7 w-7 flex-none items-center justify-center rounded-full bg-accent-soft text-xs font-semibold text-accent">
-                  {p.name
-                    .split(/\s+/)
-                    .slice(0, 2)
-                    .map((w) => w[0])
-                    .join("")
-                    .toUpperCase()}
-                </span>
-                <span className="min-w-0">
-                  <span className="block truncate font-medium">{p.name}</span>
-                  {p.role ? <span className="block truncate text-xs text-muted">{p.role}</span> : null}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm text-muted">Nobody yet.</p>
-        )}
+        <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted">Who moves it forward</h3>
+        <p className="mb-2 text-xs text-muted">The people who decide, approve or unblock this project.</p>
+        <StakeholderList projectId={projectId} people={people} names={names} />
       </section>
 
       <section>
