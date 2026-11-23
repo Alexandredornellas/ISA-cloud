@@ -47,11 +47,16 @@ export function RequirementList({ requirements, projectId }: { requirements: Req
                 <span className={`flex-none rounded px-1.5 py-0.5 text-xs font-medium ${s.style}`}>{s.label}</span>
               </summary>
               <div className="mt-1 space-y-1 text-sm">
-                {r.jiraIssueKey ? (
-                  <a href={jiraUrl(r.jiraIssueKey)} target="_blank" rel="noreferrer" className="inline-block text-xs text-accent hover:underline">
-                    Open {r.jiraIssueKey} in Jira
-                  </a>
-                ) : null}
+                <p className="flex flex-wrap gap-x-3 text-xs">
+                  <Link href={`/decisions/${r.id}`} className="font-medium text-accent hover:underline">
+                    Why? See the decision trail
+                  </Link>
+                  {r.jiraIssueKey ? (
+                    <a href={jiraUrl(r.jiraIssueKey)} target="_blank" rel="noreferrer" className="text-accent hover:underline">
+                      Open {r.jiraIssueKey} in Jira
+                    </a>
+                  ) : null}
+                </p>
                 {r.description ? <p className="whitespace-pre-wrap text-muted">{r.description}</p> : null}
                 {r.approvedBy ? <p className="text-xs text-ok">Approved by {r.approvedBy}</p> : null}
                 <div className="flex flex-wrap items-center gap-1.5 pt-1">

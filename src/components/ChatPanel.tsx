@@ -8,10 +8,10 @@ import { sendChatMessage } from "@/app/(app)/chat/actions";
 export type Message = { id: string; role: "user" | "assistant" | "log"; text: string; used?: string[] };
 
 const EXAMPLES = [
-  "What do we know about the login project?",
-  "What does Jira have about MFA, and what is missing?",
-  "Make the MFA ticket support SMS codes too",
-  "The billing email belongs to the Login project",
+  "Why did we decide to add Pix to guest checkout?",
+  "Who can help with PCI compliance?",
+  "Where does Jira disagree with what was agreed?",
+  "Draft user stories for per-tier rate limits",
 ];
 
 /** ISA's answer, rendered from Markdown. */
@@ -54,6 +54,7 @@ export function ChatPanel({
   replyTo = null,
   onClearReply,
   placeholder = "Ask ISA anything…",
+  autoSend = false,
 }: {
   messages: Message[];
   initial?: string;
@@ -63,6 +64,8 @@ export function ChatPanel({
   replyTo?: { id: string; title: string } | null;
   onClearReply?: () => void;
   placeholder?: string;
+  /** Send `initial` right away (a question asked from the home screen). */
+  autoSend?: boolean;
 }) {
   const [optimistic, addOptimistic] = useOptimistic(messages, (state, text: string) => [
     ...state,
@@ -91,6 +94,19 @@ export function ChatPanel({
       if (failed) setError(failed);
     });
   }
+
+  const sentInitial = useRef(false);
+  useEffect(() => {
+    if (!autoSend || !initial.trim() || sentInitial.current) return;
+    sentInitial.current = true;
+    // Drop the question from the address so a reload does not ask it again.
+    const url = new URL(window.location.href);
+    url.searchParams.delete("ask");
+    url.searchParams.delete("send");
+    window.history.replaceState(null, "", url.pathname + url.search);
+    send(initial);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="mt-3 space-y-4">
@@ -149,8 +165,8 @@ export function ChatPanel({
             ref={boxRef}
             name="text"
             rows={2}
-            defaultValue={initial}
-            autoFocus={!!initial}
+            defaultValue={autoSend ? "" : initial}
+            autoFocus={!!initial && !autoSend}
             aria-label="Message ISA"
             placeholder={replyTo ? 'Tell ISA what to change, e.g. "Keep SCRUM-7 open, just comment on it"' : placeholder}
             className="max-h-48 flex-1 resize-none bg-transparent px-2 py-1 text-sm outline-none"

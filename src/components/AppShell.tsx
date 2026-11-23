@@ -24,15 +24,22 @@ export function AppShell({ channels, dueReminders, peopleSuggestions = 0, childr
       <Link href="/" className="mb-3 flex items-center gap-2 px-2 pt-1">
         <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-accent text-sm font-bold text-white">I</span>
         <span className="font-semibold tracking-tight">ISA</span>
-        <span className="text-xs text-muted">your project assistant</span>
+        <span className="text-xs text-muted">your project memory</span>
       </Link>
 
-      <Item href="/" icon="grid" label="Overview" count={0} match="overview" />
+      <Item href="/" icon="grid" label="Home" count={0} match="overview" />
       <Item href="/?c=general" icon="chat" label="Ask ISA" count={general?.count ?? 0} match="general" />
-      <Item href="/reminders" icon="bell" label="Who owes what" count={dueReminders} match="/reminders" />
-      <Item href="/people" icon="users" label="People" count={peopleSuggestions} match="/people" />
 
-      <p className="mt-4 flex items-center justify-between px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
+      <Group label="Know" />
+      <Item href="/decisions" icon="memory" label="Decisions" count={0} match="/decisions" />
+      <Item href="/people" icon="users" label="Who knows what" count={peopleSuggestions} match="/people" />
+      <Item href="/reminders" icon="bell" label="Who owes what" count={dueReminders} match="/reminders" />
+
+      <Group label="Create" />
+      <Item href="/diagrams" icon="flow" label="Diagrams" count={0} match="/diagrams" />
+      <Item href="/report" icon="doc" label="Status report" count={0} match="/report" />
+
+      <p className="mt-3 flex items-center justify-between px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
         <span>Projects</span>
         <span className="font-normal normal-case tracking-normal">{projects.length}</span>
       </p>
@@ -54,9 +61,8 @@ export function AppShell({ channels, dueReminders, peopleSuggestions = 0, childr
       </div>
 
       <div className="mt-2 space-y-0.5 border-t border-line pt-2">
-        <Item href="/report" icon="doc" label="Status report" count={0} match="/report" />
         <Item href="/meetings" icon="video" label="Join a meeting" count={0} match="/meetings" />
-        <Item href="/connections" icon="plug" label="Connections" count={0} match="/connections" />
+        <Item href="/connections" icon="plug" label="Sources" count={0} match="/connections" />
         <Item href="/settings" icon="gear" label="Settings" count={0} match="/settings" />
       </div>
     </nav>
@@ -127,4 +133,8 @@ function ItemLink({ href, label, count, active, icon, dot, muted }: ItemProps & 
       ) : null}
     </Link>
   );
+}
+
+function Group({ label }: { label: string }) {
+  return <p className="mt-3 px-2 pb-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted">{label}</p>;
 }

@@ -7,6 +7,7 @@ export const SOURCES: Record<string, { label: string; mark: string; bg: string }
   slack: { label: "Slack", mark: "S", bg: "#4A154B" },
   manual: { label: "Note", mark: "N", bg: "#5F6368" },
   jira: { label: "Jira", mark: "J", bg: "#2F5BD3" },
+  confluence: { label: "Confluence", mark: "C", bg: "#1868DB" },
 };
 
 export const sourceOf = (s: string) => SOURCES[s] ?? SOURCES.manual;
@@ -21,4 +22,7 @@ export function timeAgo(d: Date, now = new Date()): string {
   return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-export const fullTime = (d: Date) => new Date(d).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+// The owner's time zone; the same on the server and in the browser so pages hydrate cleanly.
+const TZ = process.env.ISA_TIMEZONE || "America/Fortaleza";
+
+export const fullTime = (d: Date) => new Date(d).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: TZ });

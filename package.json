@@ -18,6 +18,7 @@
     "@anthropic-ai/sdk": "^1.10.0",
     "dotenv": "^18.0.10",
     "drizzle-orm": "^0.45.4",
+    "mermaid": "^11.17.2",
     "next": "16.4.6",
     "postgres": "^4.1.1",
     "react": "19.3.0",

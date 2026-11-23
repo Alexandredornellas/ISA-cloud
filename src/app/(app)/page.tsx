@@ -12,24 +12,26 @@ import { pendingSuggestions, stakeholders } from "@/lib/people";
 import { clearChatMessages } from "./chat/actions";
 import { portfolio, projectHealth } from "@/lib/portfolio";
 import { Overview } from "@/components/Overview";
+import { decisionList, memoryStats } from "@/lib/trail";
 import { openReminders } from "@/lib/reminders";
 import { ReminderList } from "@/components/ReminderList";
 
 export const dynamic = "force-dynamic";
 
 const PROJECT_EXAMPLES = [
-  "What is still open here, and what is blocking it?",
-  "What changed in Jira on these tickets?",
-  "What should I ask the stakeholders next?",
+  "What was decided here, and why?",
+  "What is still open, and who can unblock it?",
+  "Draft the epic and user stories from what was agreed",
+  "Draw the main user flow",
 ];
 
 /** ISA's home: Ask ISA (general) or one project, with what needs you, the chat, and a side panel. */
 export default async function HomePage({ searchParams }: PageProps<"/">) {
-  const { c, ask } = await searchParams;
+  const { c, ask, send } = await searchParams;
   const all = await channels();
   if (!c && typeof ask !== "string") {
-    const [{ projects, reminders }, feed] = await Promise.all([portfolio(), activity(null, 12)]);
-    return <Overview projects={projects} reminders={reminders} feed={feed} generalCount={all[0].count} />;
+    const [{ projects, reminders }, feed, stats, recent] = await Promise.all([portfolio(), activity(null, 12), memoryStats(), decisionList({ limit: 5 })]);
+    return <Overview projects={projects} reminders={reminders} feed={feed} generalCount={all[0].count} stats={stats} recent={recent} />;
   }
   const current = (typeof c === "string" && all.find((ch) => ch.id === c)) || all[0];
   const projectId = current.id;
@@ -134,6 +136,7 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
           messages={messages}
           examples={projectId ? PROJECT_EXAMPLES : undefined}
           initial={typeof ask === "string" ? ask : ""}
+          autoSend={send === "1"}
         />
       }
     />

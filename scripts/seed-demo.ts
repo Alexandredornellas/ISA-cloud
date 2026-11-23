@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { eq } from "drizzle-orm";
 import { db, schema } from "../src/db";
 import type { Plan } from "../src/lib/plan";
 import { saveSettings, getSettings } from "../src/lib/settings";
@@ -25,7 +26,7 @@ async function main() {
   const ago = (ms: number) => new Date(now - ms);
   const inDays = (d: number) => new Date(new Date(now + d * DAY).toISOString().slice(0, 10) + "T12:00:00Z");
 
-  for (const t of [schema.personSuggestions, schema.personDuties, schema.people, schema.reminders, schema.ticketChanges, schema.jiraTickets, schema.actions, schema.proposals, schema.eventProjects, schema.chatMessages, schema.projectRules, schema.requirements, schema.events, schema.projects]) {
+  for (const t of [schema.diagrams, schema.personSuggestions, schema.personDuties, schema.people, schema.reminders, schema.ticketChanges, schema.jiraTickets, schema.actions, schema.proposals, schema.eventProjects, schema.chatMessages, schema.projectRules, schema.requirements, schema.events, schema.projects]) {
     await db.delete(t);
   }
   await saveSettings({ ...(await getSettings()), ownerName: "Marina Alves" });
@@ -48,7 +49,7 @@ async function main() {
     .returning();
 
   // Requirements and their Jira tickets.
-  await db.insert(schema.requirements).values([
+  const [guestReq, cardsReq] = await db.insert(schema.requirements).values([
     { projectId: checkout.id, title: "Guest checkout without an account", description: "Buyers can pay with email only. Now must also offer Pix (agreed with Rafael on Thursday).", status: "changed", approvedBy: "Rafael Costa", jiraIssueKey: "CHK-14", jiraStatus: "In progress" },
     { projectId: checkout.id, title: "Save cards for returning buyers", description: "Tokenized cards via the payment provider.", status: "approved", approvedBy: "Rafael Costa", jiraIssueKey: "CHK-12", jiraStatus: "In progress" },
     { projectId: checkout.id, title: "One-page layout on mobile web", description: "", status: "approved", approvedBy: "Rafael Costa", jiraIssueKey: "CHK-11", jiraStatus: "Done" },
@@ -57,7 +58,7 @@ async function main() {
     { projectId: mobile.id, title: "Sign up with Google and Apple", description: "", status: "approved", approvedBy: "Lia Santos", jiraIssueKey: "MOB-3", jiraStatus: "In progress" },
     { projectId: mobile.id, title: "3-step product tour after sign-up", description: "", status: "approved", approvedBy: "Lia Santos", jiraIssueKey: "MOB-4", jiraStatus: "To do" },
     { projectId: mobile.id, title: "Remove the phone number step", description: "", status: "done", approvedBy: "Lia Santos", jiraIssueKey: "MOB-2", jiraStatus: "Done" },
-  ]);
+  ]).returning();
   await db.insert(schema.jiraTickets).values([
     { key: "CHK-10", projectId: checkout.id, issueType: "Epic", summary: "Checkout redesign", status: "In progress" },
     { key: "CHK-14", projectId: checkout.id, issueType: "Story", summary: "Guest checkout without an account", status: "In progress" },
@@ -197,6 +198,73 @@ async function main() {
     { eventId: call.id, projectId: checkout.id, personId: null, name: "Fernanda Rocha", kind: "moves_project", text: "Approves payment provider contracts at Loja Viva", quote: "Fernanda in legal still has to approve the provider contract." },
     { eventId: slack.id, projectId: api.id, personId: (await findPerson({ name: "Bruno Reis" }))?.id ?? null, name: "Bruno Reis", kind: "can_help", text: "Rate limiting at the gateway", quote: "I set up the gateway rate limits for v1, I can do the per-tier ones." },
   ]);
+
+  // How the checkout decisions came to be: the PRD, the kickoff, then Slack and Jira.
+  const sort = (projectId: string, requirementIds: string[], note: string) => ({
+    matches: [{ projectId, relation: "context" as const, confidence: "high" as const, requirementIds, note }],
+    newProject: null,
+    ignore: false,
+    searchTerms: [],
+    reason: "",
+  });
+  const [prd, kickoff] = await db
+    .insert(schema.events)
+    .values([
+      {
+        source: "confluence", externalId: "demo-prd-1@3", title: "Checkout redesign PRD", author: "Marina Alves", occurredAt: ago(21 * DAY), status: "sorted",
+        url: "https://isaproject.atlassian.net/wiki/spaces/CHK/pages/131073/Checkout+redesign+PRD",
+        content: "Goal: raise web conversion from 2.1% to 3%. Scope: one-page checkout, guest checkout (email only), saved cards for returning buyers. Out of scope: marketplace sellers. Payments: tokenized by the payment provider; we never store card numbers (PCI scope).",
+        sortResult: sort(checkout.id, [guestReq.id, cardsReq.id], "PRD: guest checkout by email only; cards tokenized by the provider, never stored by us."),
+      },
+      {
+        source: "zoom", externalId: "demo-kickoff-1", title: "Checkout kickoff with Loja Viva", author: "Rafael Costa", occurredAt: ago(14 * DAY), status: "sorted",
+        participants: [people.rafael, people.joao],
+        content: "Rafael: Half of our abandoned carts happen at sign-up, so guest checkout is the priority.\nJoão: For saved cards we use the provider's vault, so card numbers never touch our servers.\nRafael: Agreed, approve both.",
+      },
+    ])
+    .returning();
+  await db.update(schema.events).set({ sortResult: sort(checkout.id, [cardsReq.id], "João changed where card numbers are stored, against the PRD and the kickoff.") }).where(eq(schema.events.id, slack.id));
+  await db.insert(schema.eventProjects).values([
+    { eventId: prd.id, projectId: checkout.id, relation: "new", note: "The PRD: guest checkout by email only, saved cards tokenized by the provider (no card numbers stored, to stay out of PCI scope)." },
+    { eventId: kickoff.id, projectId: checkout.id, relation: "approval", note: "Rafael approved guest checkout (half of abandoned carts happen at sign-up) and saved cards in the provider's vault." },
+  ]);
+  const kickoffPlan: Plan = {
+    summary: "Rafael approved guest checkout and saved cards at the kickoff.",
+    projectName: null,
+    people: [],
+    requirementChanges: [
+      { ref: "R1", op: "create", title: "Guest checkout without an account", description: "Buyers pay with email only.", status: "approved", approvedBy: "Rafael Costa", reason: "Rafael Costa at the Loja Viva kickoff: half of abandoned carts happen at sign-up. Matches the PRD." },
+      { ref: "R2", op: "create", title: "Save cards for returning buyers", description: "Cards tokenized by the provider's vault.", status: "approved", approvedBy: "Rafael Costa", reason: "João Lima proposed the provider's vault so card numbers never touch our servers (PCI); Rafael approved. Matches the PRD." },
+    ],
+    actions: [
+      { type: "jira_create", requirementRef: "R1", summary: "Guest checkout without an account", description: "Buyers can pay with email only.", kind: "story", epicRef: "CHK-10" },
+      { type: "jira_create", requirementRef: "R2", summary: "Save cards for returning buyers", description: "Tokenized via the provider's vault.", kind: "story", epicRef: "CHK-10" },
+    ],
+    openQuestions: [],
+  };
+  await db.insert(schema.proposals).values({
+    kind: "update", projectId: checkout.id, title: "Guest checkout and saved cards", plan: kickoffPlan, eventIds: [kickoff.id], status: "executed",
+    refs: { R1: guestReq.id, R2: cardsReq.id }, decidedAt: ago(14 * DAY - HOUR), createdAt: ago(14 * DAY),
+  });
+  await db.insert(schema.diagrams).values({
+    projectId: checkout.id, requirementId: guestReq.id, kind: "flow", title: "Guest checkout with cards and Pix",
+    mermaid: [
+      "flowchart TD",
+      '  A["Buyer opens checkout"] --> B{"Has an account?"}',
+      '  B -->|No| C["Enter email only"]',
+      '  B -->|Yes| D["Sign in, saved cards shown"]',
+      '  C --> E{"Pays by?"}',
+      "  D --> E",
+      '  E -->|Card| F["Provider tokenizes the card"]',
+      '  E -->|Pix| G["Show Pix QR code"]',
+      '  G --> H{"Paid within 30 min?"}',
+      '  H -->|Yes| I["Order confirmed"]',
+      '  H -->|No| J["Order cancelled, email sent"]',
+      "  F --> I",
+    ].join("\n"),
+    notes: "Pix for signed-in buyers is still open (asked in the Loja Viva weekly).\nThe 30-minute Pix expiry is an assumption: confirm with João and the provider contract.",
+    createdAt: ago(2 * HOUR),
+  });
 
   console.log("Demo data loaded: Checkout redesign (at risk), Partner API v2 (needs attention), Mobile onboarding (on track).");
   process.exit(0);

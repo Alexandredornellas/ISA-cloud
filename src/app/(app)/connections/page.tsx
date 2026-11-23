@@ -1,6 +1,9 @@
 import { JiraClient, jiraConfigFromEnv } from "@/lib/jira";
 import { liveSlack } from "@/lib/runtime";
 import { GoogleClient, googleConfigFromEnv } from "@/lib/google";
+import { confluenceStatus } from "@/lib/confluence";
+import { addConfluencePage } from "./actions";
+import { SubmitButton } from "@/components/SubmitButton";
 
 export const dynamic = "force-dynamic";
 
@@ -57,7 +60,8 @@ function envStatus(
   return { name, ok, detail: ok ? okDetail : missingDetail };
 }
 
-export default async function ConnectionsPage() {
+export default async function ConnectionsPage({ searchParams }: { searchParams: Promise<{ confluence?: string }> }) {
+  const { confluence: confluenceMessage } = await searchParams;
   const statuses: Status[] = [
     envStatus(
       "Claude",
@@ -66,6 +70,7 @@ export default async function ConnectionsPage() {
       "Set ANTHROPIC_API_KEY",
     ),
     await jiraStatus(),
+    { name: "Confluence", ...(await confluenceStatus()) },
     envStatus(
       "Meeting bot",
       ["RECALL_API_KEY"],
@@ -88,11 +93,11 @@ export default async function ConnectionsPage() {
     <div className="mx-auto max-w-3xl space-y-8 px-4 py-7 sm:px-8">
       <section>
         <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
-          Connections
+          Sources
         </h1>
         <p className="mt-1 text-sm text-muted">
-          Where ISA listens (meetings, email, Slack) and where she acts after
-          you approve (Jira, Slack, email).
+          Where ISA gathers context (meetings, email, Slack, Confluence, Jira)
+          and where she acts after you approve (Jira, Slack, email).
         </p>
         <ul className="mt-5 divide-y divide-line rounded-xl border border-line bg-surface">
           {statuses.map((s) => (
@@ -140,6 +145,24 @@ export default async function ConnectionsPage() {
             </a>
           ) : null}
         </div>
+        <form action={addConfluencePage} className="mt-3 rounded-xl border border-line bg-surface p-4">
+          <p className="font-medium">Add a Confluence page to memory</p>
+          <p className="mt-0.5 text-sm text-muted">
+            Paste a spec, PRD or meeting notes page. ISA reads it (never edits it), files it under the
+            right projects, and keeps its decisions with the source.
+          </p>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <input
+              name="page"
+              required
+              placeholder="https://your-site.atlassian.net/wiki/spaces/…/pages/123456/…"
+              aria-label="Confluence page link"
+              className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 py-2 text-sm"
+            />
+            <SubmitButton className="bg-accent text-white">Add page</SubmitButton>
+          </div>
+          {confluenceMessage ? <p className="mt-2 text-sm" role="status">{confluenceMessage}</p> : null}
+        </form>
       </section>
 
       <a href="/meetings" className="block rounded-xl border border-line bg-surface p-4 text-sm hover:border-accent">

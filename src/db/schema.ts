@@ -19,6 +19,7 @@ export const eventSource = pgEnum("event_source", [
   "slack",
   "manual",
   "jira",
+  "confluence",
 ]);
 
 export const eventStatus = pgEnum("event_status", [
@@ -376,4 +377,21 @@ export const personSuggestions = pgTable(
     ...timestamps,
   },
   (t) => [index("person_suggestions_status_idx").on(t.status)],
+);
+
+// Diagrams ISA drew for the owner (Mermaid source), from a project or one requirement.
+export const diagrams = pgTable(
+  "diagrams",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    requirementId: uuid("requirement_id").references(() => requirements.id, { onDelete: "set null" }),
+    title: text("title").notNull(),
+    kind: text("kind").notNull().default("flow"), // flow | sequence | state
+    mermaid: text("mermaid").notNull(),
+    // What the drawing assumes or leaves open, for the owner to check.
+    notes: text("notes").notNull().default(""),
+    ...timestamps,
+  },
+  (t) => [index("diagrams_project_idx").on(t.projectId)],
 );

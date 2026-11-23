@@ -13,6 +13,7 @@ export function ChannelView({
   messages,
   examples,
   initial,
+  autoSend = false,
 }: {
   projectId: string | null;
   name: string;
@@ -20,6 +21,7 @@ export function ChannelView({
   messages: Message[];
   examples?: string[];
   initial?: string;
+  autoSend?: boolean;
 }) {
   const [open, setOpen] = useState<string | null>(notifications[0]?.id ?? null);
   const [replyTo, setReplyTo] = useState<{ id: string; title: string } | null>(null);
@@ -61,6 +63,7 @@ export function ChannelView({
           projectId={projectId}
           examples={examples}
           initial={initial}
+          autoSend={autoSend}
           replyTo={replyTo}
           onClearReply={() => setReplyTo(null)}
           placeholder={projectId ? `Ask about ${name}…` : undefined}

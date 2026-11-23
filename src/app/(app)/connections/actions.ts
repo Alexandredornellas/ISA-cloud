@@ -2,6 +2,8 @@
 
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { importPage } from "@/lib/confluence";
 import { db, schema } from "@/db";
 import { RecallClient, platformOf, recallConfigFromEnv } from "@/lib/recall";
 
@@ -51,4 +53,19 @@ export async function setAutoJoin(form: FormData) {
     .set({ state: { ...conn.state, autoJoin: on ? "on" : "off" }, updatedAt: new Date() })
     .where(eq(schema.connections.id, conn.id));
   revalidatePath("/", "layout");
+}
+
+/** Add a Confluence page (read-only) to ISA's memory; the worker files it under projects. */
+export async function addConfluencePage(form: FormData) {
+  const page = String(form.get("page") ?? "").trim();
+  if (!page) return;
+  let message: string;
+  try {
+    const r = await importPage(page);
+    message = r.added ? `Added “${r.title}”. ISA files it under its projects in a few seconds.` : `“${r.title}” is already in memory.`;
+  } catch (err) {
+    message = err instanceof Error ? err.message : "Could not add the page";
+  }
+  revalidatePath("/", "layout");
+  redirect(`/connections?confluence=${encodeURIComponent(message)}`);
 }

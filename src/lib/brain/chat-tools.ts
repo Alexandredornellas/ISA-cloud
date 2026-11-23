@@ -14,6 +14,10 @@ import { researchJira, type JiraSearcher } from "@/lib/jira-research";
 import { portfolio, portfolioText } from "@/lib/portfolio";
 import { addReminder, dayKey, openReminders, remindersText, setReminderStatus } from "@/lib/reminders";
 import { addDuty, directory, personLine, updatePerson, upsertPerson, type DirectoryEntry } from "@/lib/people";
+import { claudeStructured } from "@/lib/brain/llm";
+import { decisionList, decisionTrail, trailText, type DecisionRow } from "@/lib/trail";
+import { confluenceConfigured, importPage, searchPages } from "@/lib/confluence";
+import { drawDiagram } from "@/lib/brain/diagram";
 
 export type ChatTool = {
   name: string;
@@ -290,6 +294,67 @@ export function chatTools(llm: StructuredLLM, jira: JiraReader | null = null, se
       run: async ({ reminderId, status }) => {
         await setReminderStatus(reminderId, status);
         return status === "done" ? "Marked done." : "Dismissed.";
+      },
+    }),
+    tool({
+      name: "find_decisions",
+      description:
+        "Search ISA's decision memory: requirements across projects by words in their title, description, Jira key or project name. Use it first for 'why did we decide X?', then call decision_trail on the best match.",
+      inputSchema: z.object({ query: z.string().describe("Words from the decision, e.g. 'Pix', 'card storage', 'CHK-14'"), projectId: z.string().nullable() }),
+      run: async ({ query, projectId }) => {
+        let rows = await decisionList({ query, projectId, limit: 15 });
+        if (!rows.length) {
+          const seen = new Map<string, DecisionRow>();
+          for (const w of query.split(/\s+/).filter((w) => w.length > 2)) for (const r of await decisionList({ query: w, projectId, limit: 10 })) seen.set(r.id, r);
+          rows = [...seen.values()];
+        }
+        return rows.length
+          ? rows.map((r) => `- [${r.id}] ${r.title} (${r.projectName}; ${r.status}${r.jiraIssueKey ? `; ${r.jiraIssueKey}` : ""})`).join("\n")
+          : "No requirement matches. Try search_items for conversations, or search_confluence for documents.";
+      },
+    }),
+    tool({
+      name: "decision_trail",
+      description:
+        "The full history of one requirement: which meetings, Slack threads, emails and Confluence pages raised or changed it, who approved what and why, what is waiting for the owner, and what happened to its Jira ticket. Answer 'why' questions from this, citing each source by type, title, person and date, and link the owner to the trail page.",
+      inputSchema: z.object({ requirementId: id }),
+      run: async ({ requirementId }) => {
+        const t = await decisionTrail(requirementId);
+        return t ? `${trailText(t)}\nTrail page for the owner: /decisions/${t.requirement.id}` : "Requirement not found.";
+      },
+    }),
+    tool({
+      name: "search_confluence",
+      description: "Search Confluence pages (read-only) by words. Use it for specs, PRDs, meeting notes and decisions written down outside ISA.",
+      inputSchema: z.object({ query: z.string() }),
+      run: async ({ query }) => {
+        if (!confluenceConfigured()) return "Confluence is not connected (it uses the Jira sign-in).";
+        const hits = await searchPages(query);
+        return hits.length ? hits.map((h) => `- [${h.id}] ${h.title}${h.space ? ` (${h.space})` : ""}: ${h.excerpt} ${h.url}`).join("\n") : "No Confluence page matches.";
+      },
+    }),
+    tool({
+      name: "add_confluence_page",
+      description: "Add a Confluence page to ISA's memory when the owner asks, so it is sorted into projects and its decisions are kept. Read-only on Confluence.",
+      inputSchema: z.object({ page: z.string().describe("The page link or id") }),
+      run: async ({ page }) => {
+        const r = await importPage(page);
+        return r.added ? `Added "${r.title}" to memory. ISA will file it under its projects in a few seconds.` : `"${r.title}" (this version) is already in memory.`;
+      },
+    }),
+    tool({
+      name: "draw_diagram",
+      description:
+        "Draw a diagram (user flow, sequence between systems, or states) from a project's records, or one requirement's, and save it for the owner. Returns the link to show.",
+      inputSchema: z.object({
+        projectId: id,
+        requirementId: z.string().nullable(),
+        kind: z.enum(["flow", "sequence", "state"]),
+        ask: z.string().nullable().describe("What the owner wants the diagram to show, in their words"),
+      }),
+      run: async (input) => {
+        const d = await drawDiagram(claudeStructured, input);
+        return `Drew "${d.title}". Show the owner: /diagrams#${d.id}${d.notes ? `\nOpen points: ${d.notes}` : ""}`;
       },
     }),
     tool({

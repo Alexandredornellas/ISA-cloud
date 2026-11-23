@@ -5,7 +5,7 @@ import type { ActivityEntry } from "@/lib/activity";
 import { sourceOf, timeAgo } from "@/lib/sources";
 import { ActivityFeed } from "@/components/ActivityFeed";
 import { ReminderList } from "@/components/ReminderList";
-import { Icon } from "@/components/Icon";
+import { Icon, type IconName } from "@/components/Icon";
 
 const STATUS = {
   at_risk: { label: "At risk", pill: "bg-danger/15 text-danger", bar: "bg-danger" },
@@ -26,42 +26,132 @@ function greeting(now = new Date()) {
   return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
 }
 
-/** The home screen for someone holding several projects: what's at risk, what needs them, and who owes what. */
-export function Overview({ projects, reminders, feed, generalCount }: { projects: ProjectHealth[]; reminders: ReminderRow[]; feed: ActivityEntry[]; generalCount: number }) {
-  const atRisk = projects.filter((p) => p.status === "at_risk").length;
+export type MemoryStats = { meetings: number; slack: number; email: number; confluence: number; decisions: number; tickets: number; people: number };
+type RecentDecision = { id: string; title: string; projectName: string; status: string; updatedAt: Date };
+
+const ASK_EXAMPLES = [
+  "Why did we decide to add Pix to guest checkout?",
+  "Who can help with PCI compliance?",
+  "What did Priya ask for, and where is it in Jira?",
+];
+
+const askHref = (q: string) => `/?c=general&send=1&ask=${encodeURIComponent(q)}`;
+
+/**
+ * Home: ISA as the keeper of every project's context. Ask the memory first (Know), then what needs
+ * the owner's judgment (Decide), then what to make from the context (Create).
+ */
+export function Overview({
+  projects,
+  reminders,
+  feed,
+  generalCount,
+  stats,
+  recent,
+}: {
+  projects: ProjectHealth[];
+  reminders: ReminderRow[];
+  feed: ActivityEntry[];
+  generalCount: number;
+  stats: MemoryStats;
+  recent: RecentDecision[];
+}) {
   const needsYou = projects.reduce((n, p) => n + p.needsYou, 0) + generalCount;
   const risks = projects.flatMap((p) => p.risks).sort((a, b) => order(a) - order(b));
+  const conflicts = risks.filter((r) => r.kind === "drift").length;
   const soon = reminders.filter((r) => ["overdue", "today", "week"].includes(bucketOf(r)));
-  const owedToday = reminders.filter((r) => r.direction === "mine" && ["overdue", "today"].includes(bucketOf(r))).length;
+  const sources = [
+    { n: stats.meetings, label: stats.meetings === 1 ? "meeting" : "meetings", source: "zoom" },
+    { n: stats.slack, label: stats.slack === 1 ? "Slack thread" : "Slack threads", source: "slack" },
+    { n: stats.email, label: stats.email === 1 ? "email" : "emails", source: "gmail" },
+    { n: stats.confluence, label: stats.confluence === 1 ? "Confluence page" : "Confluence pages", source: "confluence" },
+    { n: stats.tickets, label: stats.tickets === 1 ? "Jira ticket" : "Jira tickets", source: "jira" },
+  ];
 
   return (
     <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_380px]">
       <div className="mx-auto w-full min-w-0 max-w-4xl px-4 pb-10 pt-5 sm:px-8 sm:pt-7">
-        <header className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{greeting()}</h1>
-            <p className="mt-1 text-sm text-muted">
-              {projects.length} project{projects.length === 1 ? "" : "s"} · <Stat n={atRisk} label="at risk" tone="danger" /> · <Stat n={needsYou} label={needsYou === 1 ? "suggestion needs you" : "suggestions need you"} tone="warn" /> ·{" "}
-              <Stat n={owedToday} label="due from you today" tone="warn" />
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Link href="/report" className="flex items-center gap-1.5 rounded-lg border border-line bg-surface px-3 py-2 text-sm font-medium hover:bg-hover">
-              <Icon name="doc" /> Status report
-            </Link>
-            <Link href="/?c=general" className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white">
-              <Icon name="chat" /> Ask ISA
-            </Link>
-          </div>
+        <header>
+          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{greeting()}</h1>
+          <p className="mt-1 text-sm text-muted">
+            ISA keeps the context of your {projects.length} project{projects.length === 1 ? "" : "s"}: every decision, who made it, where, and who knows what.
+          </p>
         </header>
 
-        {risks.length ? (
-          <section className="mt-6" aria-label="Needs attention">
-            <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold">
-              <Icon name="alert" className="h-4 w-4 text-danger" /> Needs attention <span className="font-normal text-muted">{risks.length}</span>
-            </h2>
+        <section aria-label="Ask your project memory" className="mt-5 rounded-2xl border border-line bg-surface p-4 shadow-sm sm:p-5">
+          <form action="/" className="flex items-center gap-2">
+            <input type="hidden" name="c" value="general" />
+            <input type="hidden" name="send" value="1" />
+            <Icon name="search" className="h-5 w-5 flex-none text-muted" />
+            <input
+              name="ask"
+              required
+              autoComplete="off"
+              aria-label="Ask your project memory"
+              placeholder="Ask anything: why we decided something, who knows what, what changed…"
+              className="min-w-0 flex-1 bg-transparent py-2 text-base outline-none"
+            />
+            <button className="flex-none rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white">Ask</button>
+          </form>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {ASK_EXAMPLES.map((q) => (
+              <Link key={q} href={askHref(q)} className="rounded-full border border-line px-3 py-1 text-xs text-muted hover:border-accent hover:text-ink">
+                {q}
+              </Link>
+            ))}
+          </div>
+          <p className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line pt-3 text-xs text-muted">
+            <span className="font-medium text-ink">In memory</span>
+            {sources.map((s) => (
+              <span key={s.source} className="inline-flex items-center gap-1.5">
+                <span aria-hidden="true" className="h-2 w-2 rounded-sm" style={{ background: sourceOf(s.source).bg }} />
+                {s.n} {s.label}
+              </span>
+            ))}
+            <Link href="/connections" className="text-accent hover:underline">
+              Add sources
+            </Link>
+          </p>
+        </section>
+
+        <section aria-label="What ISA does" className="mt-5 grid gap-3 sm:grid-cols-3">
+          <Pillar
+            title="Know"
+            icon="memory"
+            line="Decisions, requirements and conversations, with their sources."
+            links={[
+              { href: "/decisions", label: `${stats.decisions} decisions` },
+              { href: "/people", label: `${stats.people} people: who knows what` },
+            ]}
+          />
+          <Pillar
+            title="Decide"
+            icon="branch"
+            line="Conflicts and drift between Jira and what was agreed."
+            links={[
+              { href: "#decide", label: `${conflicts} conflict${conflicts === 1 ? "" : "s"} to settle`, warn: conflicts > 0 },
+              { href: needsYou ? "#projects" : "/?c=general", label: `${needsYou} suggestion${needsYou === 1 ? "" : "s"} to review`, warn: needsYou > 0 },
+            ]}
+          />
+          <Pillar
+            title="Create"
+            icon="ticket"
+            line="Epics, stories, diagrams and reports from the context. You approve."
+            links={[
+              { href: askHref("Draft an epic with user stories and acceptance criteria for the most recent agreed scope. Cite the sources."), label: "Epics and stories" },
+              { href: "/diagrams", label: "Diagrams" },
+              { href: "/report", label: "Status report" },
+            ]}
+          />
+        </section>
+
+        <section id="decide" className="mt-8 scroll-mt-4" aria-label="Needs your judgment">
+          <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold">
+            <Icon name="branch" className="h-4 w-4 text-warn" /> Needs your judgment <span className="font-normal text-muted">{risks.length}</span>
+          </h2>
+          {risks.length ? (
             <ul className="divide-y divide-line rounded-xl border border-line bg-surface">
-              {risks.slice(0, 8).map((r, i) => (
+              {risks.slice(0, 6).map((r, i) => (
                 <li key={i}>
                   <Link href={`/?c=${r.projectId}`} className="flex items-start gap-3 px-4 py-2.5 text-sm hover:bg-bg">
                     <span className={`mt-0.5 flex-none rounded px-1.5 py-0.5 text-[11px] font-semibold ${r.kind === "drift" || r.kind === "overdue" || r.kind === "failed" ? "bg-danger/15 text-danger" : "bg-warn/15 text-warn"}`}>
@@ -75,15 +165,41 @@ export function Overview({ projects, reminders, feed, generalCount }: { projects
                 </li>
               ))}
             </ul>
-            {risks.length > 8 ? <p className="mt-1 text-xs text-muted">And {risks.length - 8} more in the projects below.</p> : null}
+          ) : (
+            <p className="flex items-center gap-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm text-muted">
+              <span className="h-2 w-2 rounded-full bg-ok" aria-hidden="true" /> Nothing to settle: Jira matches what was agreed, and nothing is overdue.
+            </p>
+          )}
+          {risks.length > 6 ? <p className="mt-1 text-xs text-muted">And {risks.length - 6} more in the projects below.</p> : null}
+        </section>
+
+        {recent.length ? (
+          <section className="mt-8" aria-label="Latest decisions">
+            <h2 className="mb-2 flex items-center justify-between text-sm font-semibold">
+              Latest decisions
+              <Link href="/decisions" className="text-xs font-normal text-accent hover:underline">
+                All decisions
+              </Link>
+            </h2>
+            <ul className="divide-y divide-line rounded-xl border border-line bg-surface">
+              {recent.map((d) => (
+                <li key={d.id}>
+                  <Link href={`/decisions/${d.id}`} className="flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-bg">
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-medium">{d.title}</span>
+                      <span className="block text-xs text-muted">
+                        {d.projectName} · {d.status} · {timeAgo(d.updatedAt)}
+                      </span>
+                    </span>
+                    <span className="flex-none text-xs text-accent">Why? →</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
           </section>
-        ) : projects.length ? (
-          <p className="mt-6 flex items-center gap-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm text-muted">
-            <span className="h-2 w-2 rounded-full bg-ok" aria-hidden="true" /> No risks right now: Jira matches what was agreed, and nothing is overdue.
-          </p>
         ) : null}
 
-        <section className="mt-8" aria-label="Projects">
+        <section id="projects" className="mt-8 scroll-mt-4" aria-label="Projects">
           <h2 className="mb-2 text-sm font-semibold">Projects</h2>
           {projects.length ? (
             <ul className="grid gap-3 sm:grid-cols-2">
@@ -95,9 +211,9 @@ export function Overview({ projects, reminders, feed, generalCount }: { projects
             </ul>
           ) : (
             <div className="rounded-xl border border-dashed border-line p-6 text-sm text-muted">
-              No projects yet. Send ISA Notetaker to a meeting, or connect email and Slack, and ISA starts a project when she hears about new work.{" "}
-              <Link href="/meetings" className="text-accent hover:underline">
-                Join a meeting →
+              No projects yet. Send ISA Notetaker to a meeting, add a Confluence page, or connect email and Slack: ISA starts a project when she hears about new work.{" "}
+              <Link href="/connections" className="text-accent hover:underline">
+                Add sources →
               </Link>
             </div>
           )}
@@ -116,7 +232,7 @@ export function Overview({ projects, reminders, feed, generalCount }: { projects
             <ReminderList reminders={soon} compact empty="Nothing due this week." />
           </section>
           <section>
-            <h2 className="mb-2 text-sm font-semibold">Latest changes</h2>
+            <h2 className="mb-2 text-sm font-semibold">Just added to memory</h2>
             <ActivityFeed entries={feed} showProject />
           </section>
         </div>
@@ -125,12 +241,31 @@ export function Overview({ projects, reminders, feed, generalCount }: { projects
   );
 }
 
-function order(r: Risk) {
-  return ["drift", "overdue", "failed", "no_ticket", "waiting"].indexOf(r.kind);
+function Pillar({ title, icon, line, links }: { title: string; icon: IconName; line: string; links: { href: string; label: string; warn?: boolean }[] }) {
+  return (
+    <div className="rounded-xl border border-line bg-surface p-4">
+      <p className="flex items-center gap-2 text-sm font-semibold">
+        <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-accent-soft text-accent">
+          <Icon name={icon} />
+        </span>
+        {title}
+      </p>
+      <p className="mt-2 text-xs text-muted">{line}</p>
+      <ul className="mt-3 space-y-1 text-sm">
+        {links.map((l) => (
+          <li key={l.label}>
+            <Link href={l.href} className={`hover:underline ${l.warn ? "font-medium text-warn" : "text-accent"}`}>
+              {l.label} →
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
-function Stat({ n, label, tone }: { n: number; label: string; tone: "danger" | "warn" }) {
-  return <span className={n ? (tone === "danger" ? "font-medium text-danger" : "font-medium text-warn") : ""}>{`${n} ${label}`}</span>;
+function order(r: Risk) {
+  return ["drift", "overdue", "failed", "no_ticket", "waiting"].indexOf(r.kind);
 }
 
 function ProjectCard({ p }: { p: ProjectHealth }) {
