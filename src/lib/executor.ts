@@ -34,10 +34,16 @@ export async function executeProposal(proposalId: string, senders: Senders): Pro
 
   const plan = proposal.plan;
   const projectId = await ensureProject(proposal.projectId, plan, proposal.eventIds);
-  const refToRequirement = await applyRequirementChanges(projectId, plan);
-  const refs: Record<string, string> = {};
-  for (const [ref, row] of refToRequirement) refs[ref] = row.id;
-  await db.update(schema.proposals).set({ projectId, refs }).where(eq(schema.proposals.id, proposalId));
+  let refToRequirement: Map<string, RequirementRow>;
+  if (proposal.memoryAppliedAt) {
+    // The project's memory was saved when the item was filed: only the outside steps are left.
+    refToRequirement = await savedRefs(projectId, proposal.refs);
+  } else {
+    refToRequirement = await applyRequirementChanges(projectId, plan);
+    const refs: Record<string, string> = {};
+    for (const [ref, row] of refToRequirement) refs[ref] = row.id;
+    await db.update(schema.proposals).set({ projectId, refs, memoryAppliedAt: new Date() }).where(eq(schema.proposals.id, proposalId));
+  }
 
   const rows = plan.actions.length === 0 ? [] : await db
     .insert(schema.actions)
@@ -46,6 +52,53 @@ export async function executeProposal(proposalId: string, senders: Senders): Pro
   rows.sort((a, b) => a.position - b.position);
 
   return runActions(proposalId, projectId, rows, refToRequirement, senders);
+}
+
+/** Requirements by id, plus the plan's temporary refs ("R1") mapped to the rows they became. */
+async function savedRefs(projectId: string, refs: Record<string, string>): Promise<Map<string, RequirementRow>> {
+  const reqs = await db.query.requirements.findMany({ where: eq(schema.requirements.projectId, projectId) });
+  const byId = new Map(reqs.map((r) => [r.id, r]));
+  const out = new Map<string, RequirementRow>(reqs.map((r) => [r.id, r]));
+  for (const [ref, id] of Object.entries(refs)) {
+    const row = byId.get(id);
+    if (row) out.set(ref, row);
+  }
+  return out;
+}
+
+/**
+ * Save what a filed item means for its project, right away and without approval: requirement
+ * changes (with their reasons, which become the decision trail) and the people involved. Nothing
+ * leaves ISA here. The Jira steps and messages stay on the card as optional suggestions; a draft
+ * with none is closed. Safe to call again after the draft is merged with newer items.
+ */
+export async function recordMemory(proposalId: string): Promise<void> {
+  const proposal = await db.query.proposals.findFirst({ where: eq(schema.proposals.id, proposalId) });
+  if (!proposal || proposal.status !== "pending" || proposal.kind === "clarify" || !proposal.projectId) return;
+  const projectId = proposal.projectId;
+  const existing = new Set((await db.select({ id: schema.requirements.id }).from(schema.requirements).where(eq(schema.requirements.projectId, projectId))).map((r) => r.id));
+  // A ref saved earlier (or a real id) is now an update, so merged drafts do not duplicate.
+  const changes = proposal.plan.requirementChanges.map((c) => {
+    const id = proposal.refs[c.ref] ?? c.ref;
+    return existing.has(id) ? { ...c, ref: id, op: c.op === "create" ? ("update" as const) : c.op } : c;
+  });
+  const applied = await applyRequirementChanges(projectId, { ...proposal.plan, requirementChanges: changes });
+  const refs: Record<string, string> = { ...proposal.refs };
+  for (const c of proposal.plan.requirementChanges) {
+    const row = applied.get(proposal.refs[c.ref] ?? c.ref) ?? applied.get(c.ref);
+    if (row) refs[c.ref] = row.id;
+  }
+  if (proposal.plan.people.length) await ensureProject(projectId, proposal.plan, []);
+  const nothingLeft = proposal.plan.actions.length === 0;
+  await db
+    .update(schema.proposals)
+    .set({
+      refs,
+      memoryAppliedAt: new Date(),
+      updatedAt: new Date(),
+      ...(nothingLeft ? { status: "executed" as const, decidedAt: new Date() } : {}),
+    })
+    .where(eq(schema.proposals.id, proposalId));
 }
 
 /** Run the failed actions of a proposal again, for example after connecting Jira. */

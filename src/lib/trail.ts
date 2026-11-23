@@ -74,10 +74,11 @@ export async function decisionTrail(requirementId: string): Promise<Trail | null
     if (!changes.length && !jira) continue;
     const sources = p.eventIds.map((id) => eventOf.get(id)).filter((s): s is TrailSource => !!s);
     sources.forEach((s) => used.add(s.id));
-    const pending = p.status === "pending";
+    // Saved to memory when filed: a decision on record, even if its Jira steps still wait.
+    const pending = p.status === "pending" && !(changes.length && p.memoryAppliedAt);
     const change = changes[0];
     entries.push({
-      at: p.decidedAt ?? p.createdAt,
+      at: p.decidedAt ?? p.memoryAppliedAt ?? p.createdAt,
       kind: pending ? "pending" : "decided",
       text: change ? `${OP_TEXT[change.op]}: ${change.title}${change.approvedBy ? `, approved by ${change.approvedBy}` : ""}` : p.title,
       reason: change?.reason || p.plan.summary || null,

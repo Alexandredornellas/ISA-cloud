@@ -11,6 +11,7 @@ import { asksDetails, getSettings, settingsText } from "@/lib/settings";
 import { keepToProject, owners } from "@/lib/ownership";
 import { saveCommitments } from "@/lib/reminders";
 import { savePersonNotes } from "@/lib/people";
+import { recordMemory } from "@/lib/executor";
 
 /** Ask Claude for a draft plan, with ticket details only when the owner's settings ask for them. */
 async function draft(llm: StructuredLLM, req: { system: string; context: string; input: string; effort: "low" | "medium" | "high" }): Promise<Plan> {
@@ -170,7 +171,11 @@ export async function proposeUpdate(
     ),
     orderBy: desc(schema.proposals.createdAt),
   });
-  if (waiting) return mergeIntoWaiting(waiting, projectId, events, llm, terms, focus);
+  if (waiting) {
+    const id = await mergeIntoWaiting(waiting, projectId, events, llm, terms, focus);
+    await recordMemory(id);
+    return id;
+  }
 
   const plan = await draft(llm, {
     system: PROPOSE_SYSTEM,
@@ -190,6 +195,8 @@ export async function proposeUpdate(
       eventIds: events.map((e) => e.id),
     })
     .returning({ id: schema.proposals.id });
+  // Memory first: the project knows what was decided now; Jira and messages stay optional.
+  await recordMemory(row.id);
   return row.id;
 }
 
@@ -261,6 +268,7 @@ async function proposeNewProject(event: EventRow, name: string, llm: StructuredL
       eventIds: [event.id],
     })
     .returning({ id: schema.proposals.id });
+  await recordMemory(row.id);
   return row.id;
 }
 

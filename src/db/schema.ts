@@ -141,6 +141,9 @@ export const proposals = pgTable(
     eventIds: uuid("event_ids").array().notNull().default([]),
     // Temporary requirement refs in the plan ("R1") mapped to real requirement ids after approval.
     refs: jsonb("refs").$type<Record<string, string>>().notNull().default({}),
+    // When its requirement changes and people were saved to the project's memory. Memory is saved
+    // as soon as an item is filed; approval only covers the outside steps (Jira, Slack, email).
+    memoryAppliedAt: timestamp("memory_applied_at", { withTimezone: true }),
     error: text("error"),
     decidedAt: timestamp("decided_at", { withTimezone: true }),
     ...timestamps,

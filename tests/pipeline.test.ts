@@ -80,12 +80,15 @@ describe("processEvent", () => {
     expect(proposals).toHaveLength(1);
     expect(proposals[0].kind).toBe("new_project");
     expect(proposals[0].title).toBe("New project: Login");
-    // The project exists right away, with the item filed under it; tickets wait for approval.
+    // The project exists right away, with the item filed under it and its requirements saved to
+    // memory; only the tickets wait for approval.
     const [project] = await db.select().from(schema.projects);
     expect(project).toMatchObject({ name: "Login", summary: "Summary" });
     expect(proposals[0].projectId).toBe(project.id);
     expect(await db.select().from(schema.eventProjects)).toMatchObject([{ eventId: e.id, projectId: project.id, relation: "new" }]);
-    expect(await db.select().from(schema.requirements)).toHaveLength(0);
+    expect(await db.select().from(schema.requirements)).toHaveLength(1);
+    expect(proposals[0].memoryAppliedAt).not.toBeNull();
+    expect(proposals[0].status).toBe("pending");
     // The empty Slack message was dropped; the Jira ticket kept.
     expect(proposals[0].plan.actions.map((a) => a.type)).toEqual(["jira_create"]);
     // Claude saw where to reply on the same channel.

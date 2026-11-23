@@ -1,0 +1,1 @@
+ALTER TABLE "proposals" ADD COLUMN "memory_applied_at" timestamp with time zone;

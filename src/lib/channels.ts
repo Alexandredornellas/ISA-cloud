@@ -55,6 +55,8 @@ export type Notification = {
   asks: Settings;
   /** Open sprints to choose from, when the owner confirms sprints. */
   sprints: string[];
+  /** Requirement changes already saved to the project's memory, with the requirement they became. */
+  saved: { title: string; op: string; requirementId: string | null }[];
 };
 
 export async function notifications(channelId: string | null): Promise<Notification[]> {
@@ -102,6 +104,7 @@ export async function notifications(channelId: string | null): Promise<Notificat
     plan: r.plan,
     error: r.error,
     createdAt: r.createdAt,
+    saved: r.memoryAppliedAt ? r.plan.requirementChanges.map((c) => ({ title: c.title, op: c.op, requirementId: r.refs[c.ref] ?? null })) : [],
     sources: r.eventIds.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : [])),
     existingEpics: r.plan.actions.some((a) => a.type === "jira_create" && (a.kind === "epic" || asks.askEpic)) ? existingEpics : [],
     places:

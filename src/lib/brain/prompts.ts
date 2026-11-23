@@ -35,12 +35,12 @@ You receive the project as it stands now (or nothing, for a new project) and the
 - summary: one or two sentences the owner reads first, saying what changed and why.
 - projectName: the project's name for a new project, otherwise null.
 - people: for a new project, everyone involved, with email and Slack id when the items show them; for an existing project, only people not yet listed.
-- requirementChanges: each requirement to create, update or drop.
+- requirementChanges: each requirement to create, update or drop. These are saved to the project's memory as soon as the item is filed, without waiting for the owner, so record every decision, requirement and change the items state, even when nothing needs to happen in Jira. Never record a guess: unclear points go to openQuestions.
   - For a new requirement use ref "R1", "R2", ... For an existing one use its id exactly as listed.
   - Write requirements as short, testable statements. Keep the title under 80 characters.
   - status "approved" only when someone with authority clearly agreed (say who in approvedBy); "changed" when something already approved changed and needs re-approval; otherwise "proposed".
   - reason: who said what, and where (for example "Ana in the Slack thread on Nov 20").
-- actions: what should happen outside ISA once the owner approves, in order:
+- actions: optional next steps outside ISA, which happen only if the owner approves them, in order:
   - jira_create for each new requirement that needs work. Choose its kind (story, epic, spike, bug or test) from the ticket formats you are given, and write the description in that kind's format. Link it with requirementRef. Put each non-epic ticket under its epic with epicRef, following the owner's setting; list an epic's jira_create before the tickets that go under it. End every ticket description with a "Why and sources" section a developer can trust: what was decided, who decided or asked for it, when, and where (the item's title and its Link when given), plus related tickets.
   - jira_update when an existing requirement's ticket must change (requirementRef = the requirement id; issueKey = its Jira key when listed, else null).
   - jira_comment on an existing ticket to record what changed, who decided it, when and where (with the item's Link when given), whenever a requirement with a ticket is clarified, approved or changed.

@@ -110,6 +110,29 @@ export function NotificationCard({
             {failed && n.error ? <p className="mt-2 whitespace-pre-wrap text-sm text-danger">{n.error}</p> : null}
           </section>
 
+          {n.saved.length ? (
+            <section>
+              <h3 className={label}>Saved to the project&apos;s memory</h3>
+              <ul className="mt-1 space-y-1 text-sm">
+                {n.saved.map((c, i) => (
+                  <li key={i} className="flex items-start gap-2">
+                    <span aria-hidden="true" className="mt-0.5 text-ok">✓</span>
+                    <span className="min-w-0">
+                      {c.op === "create" ? "New: " : c.op === "drop" ? "Dropped: " : "Updated: "}
+                      {c.requirementId ? (
+                        <a href={`/decisions/${c.requirementId}`} className="font-medium hover:underline">
+                          {c.title}
+                        </a>
+                      ) : (
+                        <span className="font-medium">{c.title}</span>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
           {n.sources.length ? (
             <section>
               <h3 className={label}>Who said it, and where</h3>
@@ -212,7 +235,7 @@ export function NotificationCard({
 
               {actions.length ? (
                 <section>
-                  <h3 className={`${label} mb-2`}>{failed ? "Steps" : "ISA suggests"}</h3>
+                  <h3 className={`${label} mb-2`}>{failed ? "Steps" : n.saved.length ? "Optional next steps (only if you approve)" : "ISA suggests"}</h3>
                   <ul className="space-y-2">
                     {actions.map((a, i) => {
                       const detail = stepDetail(a);

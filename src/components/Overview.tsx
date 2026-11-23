@@ -130,7 +130,7 @@ export function Overview({
             line="Conflicts and drift between Jira and what was agreed."
             links={[
               { href: "#decide", label: `${conflicts} conflict${conflicts === 1 ? "" : "s"} to settle`, warn: conflicts > 0 },
-              { href: needsYou ? "#projects" : "/?c=general", label: `${needsYou} suggestion${needsYou === 1 ? "" : "s"} to review`, warn: needsYou > 0 },
+              { href: needsYou ? "#projects" : "/?c=general", label: `${needsYou} next step${needsYou === 1 ? "" : "s"} to review`, warn: needsYou > 0 },
             ]}
           />
           <Pillar

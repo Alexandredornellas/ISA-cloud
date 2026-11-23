@@ -8,8 +8,8 @@ import { Icon } from "@/components/Icon";
 export const dynamic = "force-dynamic";
 
 const KIND: Record<TrailEntry["kind"], { label: string; dot: string }> = {
-  decided: { label: "Decided", dot: "bg-ok" },
-  pending: { label: "Waiting for you", dot: "bg-warn" },
+  decided: { label: "Recorded", dot: "bg-ok" },
+  pending: { label: "Suggested next step", dot: "bg-warn" },
   discussed: { label: "Discussed", dot: "bg-accent" },
   jira: { label: "Changed in Jira", dot: "bg-danger" },
 };

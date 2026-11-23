@@ -42,7 +42,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
     <div className="mx-auto max-w-4xl px-4 py-7 sm:px-8">
       <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Intake</h1>
       <p className="mt-1 text-sm text-muted">
-        Everything that reached ISA, and which project it went to. When ISA is sure, she files it. When she isn&apos;t, she asks you here. A meeting about several projects goes to each of them, and each project keeps only its own part.
+        Everything that reached ISA, and which project it went to. Filing an item saves what it means to that project&apos;s memory right away: decisions, requirements, people and who owes what. When ISA isn&apos;t sure where it goes, she asks you here. A meeting about several projects goes to each of them, and each keeps only its own part.
       </p>
 
       <nav aria-label="Filter" className="mt-5 flex gap-1 overflow-x-auto border-b border-line">

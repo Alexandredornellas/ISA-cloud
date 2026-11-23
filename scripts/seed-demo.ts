@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "../src/db";
 import type { Plan } from "../src/lib/plan";
 import { saveSettings, getSettings } from "../src/lib/settings";
+import { recordMemory } from "../src/lib/executor";
 import { addDuty, findPerson, updatePerson, upsertPerson } from "../src/lib/people";
 
 // Demo story: one product manager, Marina, keeps three projects on track with ISA.
@@ -295,6 +296,9 @@ async function main() {
     plan: { summary: "Tiago asks whether launch is still the first week of December, to book the marketing budget. Mobile onboarding is the only project with a December launch, but the email does not name it.", projectName: null, people: [], requirementChanges: [], actions: [], openQuestions: [] },
     createdAt: ago(80 * 60 * 1000),
   });
+
+  // Memory is saved on filing: waiting drafts already have their requirements on record.
+  for (const p of await db.query.proposals.findMany({ where: eq(schema.proposals.status, "pending") })) await recordMemory(p.id);
 
   console.log("Demo data loaded: Checkout redesign (at risk), Partner API v2 (needs attention), Mobile onboarding (on track).");
   process.exit(0);
