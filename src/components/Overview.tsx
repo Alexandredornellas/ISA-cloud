@@ -232,7 +232,12 @@ export function Overview({
             <ReminderList reminders={soon} compact empty="Nothing due this week." />
           </section>
           <section>
-            <h2 className="mb-2 text-sm font-semibold">Just added to memory</h2>
+            <h2 className="mb-2 flex items-center justify-between text-sm font-semibold">
+              Just added to memory
+              <Link href="/inbox" className="text-xs font-normal text-accent hover:underline">
+                Intake
+              </Link>
+            </h2>
             <ActivityFeed entries={feed} showProject />
           </section>
         </div>

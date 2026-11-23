@@ -266,6 +266,36 @@ async function main() {
     createdAt: ago(2 * HOUR),
   });
 
+  // The intake queue: one big meeting about two projects (each keeps its part), one item ISA is
+  // unsure about, and one that is about no project.
+  const [allHands, launchMail] = await db
+    .insert(schema.events)
+    .values([
+      {
+        source: "teams", externalId: "demo-allhands-1", title: "Product sync (all projects)", author: "Marina Alves", occurredAt: ago(26 * HOUR), status: "sorted",
+        participants: [people.joao, people.bruno, people.lia],
+        content: "Marina: Checkout first. João, any news on Pix?\nJoão: Still waiting for the provider contract.\nMarina: Partner API: Bruno, the webhooks?\nBruno: Order status webhooks are ready for review; retries use exponential backoff.\nLia: Nothing new on mobile this week.",
+      },
+      {
+        source: "gmail", externalId: "demo-mail-2", title: "Launch date question", author: "Tiago Alves <tiago@isa-demo.example>", occurredAt: ago(90 * 60 * 1000), status: "unsure",
+        content: "Hi Marina, finance needs the launch date to book the marketing budget. Is it still the first week of December? Tiago",
+      },
+      {
+        source: "gmail", externalId: "demo-mail-3", title: "Your weekly newsletter", author: "Product Weekly <news@example.com>", occurredAt: ago(6 * HOUR), status: "ignored",
+        content: "Ten product management tips for the holidays.",
+      },
+    ])
+    .returning();
+  await db.insert(schema.eventProjects).values([
+    { eventId: allHands.id, projectId: checkout.id, relation: "context", note: "João: Pix is still blocked on the payment provider contract." },
+    { eventId: allHands.id, projectId: api.id, relation: "change", note: "Bruno: order status webhooks are ready for review, with exponential backoff on retries." },
+  ]);
+  await db.insert(schema.proposals).values({
+    kind: "clarify", projectId: mobile.id, title: `Where does "Launch date question" belong?`, eventIds: [launchMail.id],
+    plan: { summary: "Tiago asks whether launch is still the first week of December, to book the marketing budget. Mobile onboarding is the only project with a December launch, but the email does not name it.", projectName: null, people: [], requirementChanges: [], actions: [], openQuestions: [] },
+    createdAt: ago(80 * 60 * 1000),
+  });
+
   console.log("Demo data loaded: Checkout redesign (at risk), Partner API v2 (needs attention), Mobile onboarding (on track).");
   process.exit(0);
 }
