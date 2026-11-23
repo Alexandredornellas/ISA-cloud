@@ -5,6 +5,7 @@ import { and, asc, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { jiraBrowseUrl } from "@/lib/jira";
 import type { Plan } from "@/lib/plan";
+import { versionsOf, type RequirementVersion } from "@/lib/versions";
 
 export type TrailSource = { id: string; source: string; title: string; author: string | null; url: string | null; at: Date; note: string | null };
 export type TrailEntry = {
@@ -16,12 +17,16 @@ export type TrailEntry = {
   reason: string | null;
   sources: TrailSource[];
   proposalId?: string;
+  /** What the requirement said before and after this step, when it changed it. */
+  change?: { version: number; was: RequirementVersion | null; now: RequirementVersion };
 };
 export type Trail = {
   requirement: typeof schema.requirements.$inferSelect;
   project: { id: string; name: string };
   ticket: { key: string; status: string | null; url: string } | null;
   entries: TrailEntry[];
+  /** Every version it has had, oldest first. */
+  versions: RequirementVersion[];
 };
 
 type ProposalRow = typeof schema.proposals.$inferSelect;
@@ -44,7 +49,7 @@ export async function decisionTrail(requirementId: string): Promise<Trail | null
   const project = await db.query.projects.findFirst({ where: eq(schema.projects.id, req.projectId) });
   if (!project) return null;
 
-  const [proposals, linked] = await Promise.all([
+  const [proposals, linked, versions] = await Promise.all([
     db.query.proposals.findMany({
       where: and(eq(schema.proposals.projectId, req.projectId), inArray(schema.proposals.status, ["pending", "approved", "executed", "failed"])),
       orderBy: asc(schema.proposals.createdAt),
@@ -55,7 +60,9 @@ export async function decisionTrail(requirementId: string): Promise<Trail | null
       .from(schema.events)
       .leftJoin(schema.eventProjects, and(eq(schema.eventProjects.eventId, schema.events.id), eq(schema.eventProjects.projectId, req.projectId)))
       .where(sql`${schema.events.sortResult} -> 'matches' @> ${JSON.stringify([{ requirementIds: [requirementId] }])}::jsonb`),
+    versionsOf(requirementId),
   ]);
+  const changeOf = (v: RequirementVersion | undefined) => (v ? { version: v.version, was: versions.find((x) => x.version === v.version - 1) ?? null, now: v } : undefined);
 
   const entries: TrailEntry[] = [];
   const used = new Set<string>();
@@ -84,7 +91,14 @@ export async function decisionTrail(requirementId: string): Promise<Trail | null
       reason: change?.reason || p.plan.summary || null,
       sources,
       proposalId: p.id,
+      change: changeOf(versions.findLast((v) => v.proposalId === p.id)),
     });
+  }
+  // Changes made outside a filed item: by hand, or when Jira marked the ticket done.
+  for (const v of versions) {
+    if (v.proposalId || v.version === 1) continue;
+    const who = v.changedBy === "you" ? "You" : v.changedBy === "Jira" ? "Jira sync" : "Someone";
+    entries.push({ at: v.validFrom, kind: "decided", text: `${who} changed it to ${v.status}`, reason: v.reason, sources: [], change: changeOf(v) });
   }
   for (const r of linked) {
     if (used.has(r.e.id)) continue;
@@ -113,6 +127,7 @@ export async function decisionTrail(requirementId: string): Promise<Trail | null
     project: { id: project.id, name: project.name },
     ticket: req.jiraIssueKey ? { key: req.jiraIssueKey, status: req.jiraStatus, url: jiraBrowseUrl(req.jiraIssueKey) } : null,
     entries,
+    versions,
   };
 }
 
@@ -196,7 +211,15 @@ export function trailText(t: Trail): string {
             }`,
         )
       : ["(no recorded history: it may predate ISA)"]),
+    "Versions, oldest first (each was in force from its date until the next one):",
+    ...t.versions.map((v) => versionLine(v)),
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+/** One version as a line for Claude. */
+export function versionLine(v: RequirementVersion): string {
+  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  return `- v${v.version} from ${fmt(v.validFrom)}${v.validTo ? ` to ${fmt(v.validTo)}` : " (current)"}: "${v.title}" [${v.status}${v.approvedBy ? `, approved by ${v.approvedBy}` : ""}] ${v.description.slice(0, 400)}${v.reason ? `. Why: ${v.reason}` : ""}. Changed by ${v.changedBy}.`;
 }

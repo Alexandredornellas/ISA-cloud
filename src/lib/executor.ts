@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { addProjectPeople } from "@/lib/people";
+import { recordVersion } from "@/lib/versions";
 import type { Action, Person, Plan, TicketDetails } from "@/lib/plan";
 import { MissingIssueTypeError, type JiraClient } from "@/lib/jira";
 import { recordIsaWrite } from "@/lib/jira-track";
@@ -39,7 +40,7 @@ export async function executeProposal(proposalId: string, senders: Senders): Pro
     // The project's memory was saved when the item was filed: only the outside steps are left.
     refToRequirement = await savedRefs(projectId, proposal.refs);
   } else {
-    refToRequirement = await applyRequirementChanges(projectId, plan);
+    refToRequirement = await applyRequirementChanges(projectId, plan, { proposalId, eventIds: proposal.eventIds });
     const refs: Record<string, string> = {};
     for (const [ref, row] of refToRequirement) refs[ref] = row.id;
     await db.update(schema.proposals).set({ projectId, refs, memoryAppliedAt: new Date() }).where(eq(schema.proposals.id, proposalId));
@@ -82,7 +83,7 @@ export async function recordMemory(proposalId: string): Promise<void> {
     const id = proposal.refs[c.ref] ?? c.ref;
     return existing.has(id) ? { ...c, ref: id, op: c.op === "create" ? ("update" as const) : c.op } : c;
   });
-  const applied = await applyRequirementChanges(projectId, { ...proposal.plan, requirementChanges: changes });
+  const applied = await applyRequirementChanges(projectId, { ...proposal.plan, requirementChanges: changes }, { proposalId, eventIds: proposal.eventIds });
   const refs: Record<string, string> = { ...proposal.refs };
   for (const c of proposal.plan.requirementChanges) {
     const row = applied.get(proposal.refs[c.ref] ?? c.ref) ?? applied.get(c.ref);
@@ -236,7 +237,11 @@ export function mergePeople(current: Person[], incoming: Person[]): Person[] {
 
 type RequirementRow = typeof schema.requirements.$inferSelect;
 
-async function applyRequirementChanges(projectId: string, plan: Plan): Promise<Map<string, RequirementRow>> {
+async function applyRequirementChanges(
+  projectId: string,
+  plan: Plan,
+  source: { proposalId: string; eventIds: string[] },
+): Promise<Map<string, RequirementRow>> {
   const existing = await db.query.requirements.findMany({
     where: eq(schema.requirements.projectId, projectId),
   });
@@ -255,6 +260,7 @@ async function applyRequirementChanges(projectId: string, plan: Plan): Promise<M
           approvedBy: change.approvedBy,
         })
         .returning();
+      await recordVersion(row, { ...source, reason: change.reason });
       byRef.set(change.ref, row);
       byRef.set(row.id, row);
     } else {
@@ -269,6 +275,7 @@ async function applyRequirementChanges(projectId: string, plan: Plan): Promise<M
         })
         .where(eq(schema.requirements.id, current.id))
         .returning();
+      await recordVersion(row, { ...source, reason: change.reason }, current);
       byRef.set(change.ref, row);
       byRef.set(row.id, row);
     }

@@ -1,3 +1,4 @@
+import { recordVersion } from "@/lib/versions";
 import { and, eq, isNotNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { JiraClient } from "@/lib/jira";
@@ -39,10 +40,12 @@ export async function syncJira(jira: JiraReader, projectId?: string): Promise<{ 
     const status = issue.done && r.status !== "dropped" ? "done" : r.status;
     if (status !== r.status) done += 1;
     if (issue.status !== r.jiraStatus || status !== r.status) {
-      await db
+      const [row] = await db
         .update(schema.requirements)
         .set({ jiraStatus: issue.status, status, updatedAt: new Date() })
-        .where(eq(schema.requirements.id, r.id));
+        .where(eq(schema.requirements.id, r.id))
+        .returning();
+      if (row && status !== r.status) await recordVersion(row, { changedBy: "Jira", reason: `${r.jiraIssueKey} was marked ${issue.status} in Jira` }, r);
     }
   }
   return { checked: reqs.length, unlinked, done };

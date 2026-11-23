@@ -51,7 +51,7 @@ async function main() {
 
   // Requirements and their Jira tickets.
   const [guestReq, cardsReq] = await db.insert(schema.requirements).values([
-    { projectId: checkout.id, title: "Guest checkout without an account", description: "Buyers can pay with email only. Now must also offer Pix (agreed with Rafael on Thursday).", status: "changed", approvedBy: "Rafael Costa", jiraIssueKey: "CHK-14", jiraStatus: "In progress" },
+    { projectId: checkout.id, title: "Guest checkout without an account", description: "Buyers pay with email only.", status: "approved", approvedBy: "Rafael Costa", jiraIssueKey: "CHK-14", jiraStatus: "In progress" },
     { projectId: checkout.id, title: "Save cards for returning buyers", description: "Tokenized cards via the payment provider.", status: "approved", approvedBy: "Rafael Costa", jiraIssueKey: "CHK-12", jiraStatus: "In progress" },
     { projectId: checkout.id, title: "One-page layout on mobile web", description: "", status: "approved", approvedBy: "Rafael Costa", jiraIssueKey: "CHK-11", jiraStatus: "Done" },
     { projectId: api.id, title: "OAuth 2.0 client credentials for partners", description: "", status: "approved", approvedBy: "Priya Nair", jiraIssueKey: "API-7", jiraStatus: "In review" },
@@ -107,7 +107,9 @@ async function main() {
     summary: "In Thursday's Loja Viva call, Rafael asked for Pix in guest checkout. CHK-14 still describes cards only. João needs the provider contract before he can start.",
     projectName: null,
     people: [],
-    requirementChanges: [],
+    requirementChanges: [
+      { ref: "R", op: "update", title: "Guest checkout without an account", description: "Buyers pay with email only, by card or Pix (QR code).", status: "changed", approvedBy: "Rafael Costa", reason: "Rafael Costa in the Loja Viva weekly (Zoom): 40% of Black Friday buyers want Pix, so guest checkout must offer it, not only cards." },
+    ],
     actions: [
       { type: "jira_update", requirementRef: "R", issueKey: "CHK-14", summary: "Guest checkout with cards and Pix", description: "Buyers can check out with email only and pay by card or Pix (QR code).\n\nWhy and sources\nRafael Costa, Loja Viva weekly (Zoom), Nov 19: 40% of Black Friday buyers want Pix." },
       { type: "jira_comment", requirementRef: "R", issueKey: "CHK-14", body: "Scope changed in the Loja Viva weekly: Pix added. Blocked until the payment provider contract arrives (Rafael)." },
@@ -129,7 +131,7 @@ async function main() {
   await db
     .insert(schema.proposals)
     .values([
-      { kind: "update", projectId: checkout.id, title: "Add Pix to guest checkout", plan: pix, eventIds: [call.id], createdAt: ago(19 * HOUR) },
+      { kind: "update", projectId: checkout.id, title: "Add Pix to guest checkout", plan: pix, refs: { R: guestReq.id }, eventIds: [call.id], createdAt: ago(19 * HOUR) },
       { kind: "update", projectId: api.id, title: "Rate limits per partner tier", plan: tiers, eventIds: [email.id], createdAt: ago(3 * HOUR) },
     ]);
   const tour: Plan = {

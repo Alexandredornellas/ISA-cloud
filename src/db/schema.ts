@@ -398,3 +398,35 @@ export const diagrams = pgTable(
   },
   (t) => [index("diagrams_project_idx").on(t.projectId)],
 );
+
+// Every version a requirement has had (slowly changing dimension, type 2). The open version has
+// no valid_to. Claude reads this only when asked about history: "why did it change?", "what did
+// we agree on date X?".
+export const requirementVersions = pgTable(
+  "requirement_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    requirementId: uuid("requirement_id")
+      .notNull()
+      .references(() => requirements.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    title: text("title").notNull(),
+    description: text("description").notNull().default(""),
+    status: requirementStatus("status").notNull(),
+    approvedBy: text("approved_by"),
+    // Why this version exists, and who or what made it ("ISA", "you", "Jira").
+    reason: text("reason"),
+    changedBy: text("changed_by").notNull().default("ISA"),
+    proposalId: uuid("proposal_id").references(() => proposals.id, { onDelete: "set null" }),
+    eventIds: uuid("event_ids").array().notNull().default([]),
+    validFrom: timestamp("valid_from", { withTimezone: true }).notNull().defaultNow(),
+    validTo: timestamp("valid_to", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("requirement_versions_req_version_idx").on(t.requirementId, t.version),
+    index("requirement_versions_project_idx").on(t.projectId),
+  ],
+);

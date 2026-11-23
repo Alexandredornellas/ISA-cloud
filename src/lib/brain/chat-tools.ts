@@ -1,6 +1,6 @@
 // What the owner can ask ISA to do in the chat. These only read ISA's data or change proposals,
 // projects and rules. Nothing here writes to Jira, Slack or email: that happens on approval.
-import { and, asc, desc, eq, ilike, inArray, or } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, ne, or } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { describeAction } from "@/lib/plan";
@@ -15,7 +15,8 @@ import { portfolio, portfolioText } from "@/lib/portfolio";
 import { addReminder, dayKey, openReminders, remindersText, setReminderStatus } from "@/lib/reminders";
 import { addDuty, directory, personLine, updatePerson, upsertPerson, type DirectoryEntry } from "@/lib/people";
 import { claudeStructured } from "@/lib/brain/llm";
-import { decisionList, decisionTrail, trailText, type DecisionRow } from "@/lib/trail";
+import { decisionList, decisionTrail, trailText, versionLine, type DecisionRow } from "@/lib/trail";
+import { versionAt } from "@/lib/versions";
 import { confluenceConfigured, importPage, searchPages } from "@/lib/confluence";
 import { drawDiagram } from "@/lib/brain/diagram";
 
@@ -111,14 +112,19 @@ export function chatTools(llm: StructuredLLM, jira: JiraReader | null = null, se
     tool({
       name: "search_items",
       description:
-        "Search the meetings, emails and Slack messages ISA has received, by words in the title or content. Newest first.",
-      inputSchema: z.object({ query: z.string().describe("A word or short phrase") }),
-      run: async ({ query }) => {
+        "Search the meetings, emails and Slack messages ISA has received, by words in the title or content. Newest first. Items the owner marked as not relevant are left out unless includeIgnored is true (only when the owner asks for them).",
+      inputSchema: z.object({ query: z.string().describe("A word or short phrase"), includeIgnored: z.boolean().nullable() }),
+      run: async ({ query, includeIgnored }) => {
         const like = `%${query}%`;
         const rows = await db
           .select()
           .from(schema.events)
-          .where(or(ilike(schema.events.title, like), ilike(schema.events.content, like)))
+          .where(
+            and(
+              or(ilike(schema.events.title, like), ilike(schema.events.content, like)),
+              includeIgnored ? undefined : ne(schema.events.status, "ignored"),
+            ),
+          )
           .orderBy(desc(schema.events.occurredAt))
           .limit(8);
         if (!rows.length) return "Nothing found.";
@@ -316,11 +322,21 @@ export function chatTools(llm: StructuredLLM, jira: JiraReader | null = null, se
     tool({
       name: "decision_trail",
       description:
-        "The full history of one requirement: which meetings, Slack threads, emails and Confluence pages raised or changed it, who approved what and why, what is waiting for the owner, and what happened to its Jira ticket. Answer 'why' questions from this, citing each source by type, title, person and date, and link the owner to the trail page.",
-      inputSchema: z.object({ requirementId: id }),
-      run: async ({ requirementId }) => {
+        "The full history of one requirement, including every version it has had (what it said, from when to when, and why it changed): which meetings, Slack threads, emails and Confluence pages raised or changed it, who approved what and why, what is waiting for the owner, and what happened to its Jira ticket. Answer 'why' questions from this, citing each source by type, title, person and date, and link the owner to the trail page.",
+      inputSchema: z.object({
+        requirementId: id,
+        asOf: z.string().nullable().describe("A date (YYYY-MM-DD) to answer 'what did we agree on that day?', or null"),
+      }),
+      run: async ({ requirementId, asOf }) => {
         const t = await decisionTrail(requirementId);
-        return t ? `${trailText(t)}\nTrail page for the owner: /decisions/${t.requirement.id}` : "Requirement not found.";
+        if (!t) return "Requirement not found.";
+        let at = "";
+        if (asOf) {
+          const day = new Date(`${asOf}T23:59:59Z`);
+          const v = Number.isNaN(day.getTime()) ? null : await versionAt(requirementId, day);
+          at = v ? `\nIn force at the end of ${asOf}:\n${versionLine(v)}` : `\nOn ${asOf} this requirement did not exist yet.`;
+        }
+        return `${trailText(t)}${at}\nTrail page for the owner: /decisions/${t.requirement.id}`;
       },
     }),
     tool({

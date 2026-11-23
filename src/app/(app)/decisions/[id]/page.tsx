@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { decisionTrail, type TrailEntry } from "@/lib/trail";
+import type { RequirementVersion } from "@/lib/versions";
 import { SourceMark } from "@/components/SourceMark";
 import { fullTime } from "@/lib/sources";
 import { Icon } from "@/components/Icon";
@@ -73,6 +74,7 @@ export default async function DecisionPage({ params }: { params: Promise<{ id: s
               </p>
               <p className="mt-0.5 text-sm font-medium">{e.text}</p>
               {e.reason ? <p className="mt-1 text-sm text-muted">{e.reason}</p> : null}
+              {e.change?.was ? <WasNow was={e.change.was} now={e.change.now} /> : null}
               {e.sources.length ? (
                 <ul className="mt-2 space-y-1.5">
                   {e.sources.map((s) => (
@@ -108,6 +110,72 @@ export default async function DecisionPage({ params }: { params: Promise<{ id: s
       ) : (
         <p className="mt-2 text-sm text-muted">No recorded history yet: this requirement may predate ISA.</p>
       )}
+
+      {t.versions.length ? (
+        <>
+          <h2 className="mt-10 text-sm font-semibold">Every version</h2>
+          <p className="mt-1 text-xs text-muted">What it said, from when to when. Nothing is deleted, even what was dropped.</p>
+          <ol className="mt-3 space-y-2">
+            {[...t.versions].reverse().map((v) => (
+              <li key={v.id}>
+                <details className="group rounded-xl border border-line bg-surface">
+                  <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-2 gap-y-1 p-3 text-sm">
+                    <span className="rounded bg-bg px-1.5 py-0.5 text-xs font-semibold">v{v.version}</span>
+                    <span className="min-w-0 flex-1 font-medium">{v.title}</span>
+                    <span className="rounded bg-bg px-2 py-0.5 text-xs capitalize">{v.status}</span>
+                    <span className="w-full text-xs text-muted">
+                      {fullTime(v.validFrom)} → {v.validTo ? fullTime(v.validTo) : "now"} · {v.changedBy === "you" ? "changed by you" : v.changedBy === "unknown" ? "changed outside ISA" : `by ${v.changedBy}`}
+                    </span>
+                  </summary>
+                  <div className="border-t border-line p-3 text-sm">
+                    {v.description ? <p className="whitespace-pre-line">{v.description}</p> : <p className="text-muted">No description.</p>}
+                    {v.reason ? <p className="mt-2 text-xs text-muted">Why: {v.reason}</p> : null}
+                    {v.approvedBy ? <p className="mt-1 text-xs text-muted">Approved by {v.approvedBy}</p> : null}
+                  </div>
+                </details>
+              </li>
+            ))}
+          </ol>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+/** What a step changed: the fields that differ between two versions. */
+function WasNow({ was, now }: { was: RequirementVersion; now: RequirementVersion }) {
+  const rows: { label: string; was: string; now: string; long?: boolean }[] = [];
+  if (was.title !== now.title) rows.push({ label: "Title", was: was.title, now: now.title });
+  if (was.status !== now.status) rows.push({ label: "Status", was: was.status, now: now.status });
+  if (was.description !== now.description) rows.push({ label: "What it says", was: was.description || "(empty)", now: now.description || "(empty)", long: true });
+  if (!rows.length) return null;
+  return (
+    <div className="mt-2 space-y-2 rounded-lg border border-line bg-surface p-2.5 text-sm">
+      {rows.map((r) => (
+        <div key={r.label}>
+          <p className="text-xs font-semibold text-muted">{r.label}</p>
+          <div className={r.long ? "mt-1 grid gap-2 sm:grid-cols-2" : "mt-0.5 flex flex-wrap items-baseline gap-x-2"}>
+            {r.long ? (
+              <>
+                <div className="rounded-md bg-danger/10 p-2">
+                  <span className="mb-0.5 block text-[11px] font-semibold uppercase text-muted">Was</span>
+                  <p className="whitespace-pre-line text-muted line-through decoration-danger/40">{r.was}</p>
+                </div>
+                <div className="rounded-md bg-ok/10 p-2">
+                  <span className="mb-0.5 block text-[11px] font-semibold uppercase text-muted">Now</span>
+                  <p className="whitespace-pre-line">{r.now}</p>
+                </div>
+              </>
+            ) : (
+              <>
+                <span className="capitalize text-muted line-through">{r.was}</span>
+                <span aria-hidden="true" className="text-muted">→</span>
+                <span className="font-medium capitalize">{r.now}</span>
+              </>
+            )}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

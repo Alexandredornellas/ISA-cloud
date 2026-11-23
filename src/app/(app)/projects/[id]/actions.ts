@@ -1,5 +1,6 @@
 "use server";
 
+import { recordVersion } from "@/lib/versions";
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
@@ -34,13 +35,17 @@ export async function setRequirementStatus(form: FormData) {
   const id = String(form.get("id"));
   const status = String(form.get("status"));
   if (!["proposed", "approved", "done", "dropped"].includes(status)) return;
-  await db
+  const before = await db.query.requirements.findFirst({ where: eq(schema.requirements.id, id) });
+  if (!before) return;
+  const [row] = await db
     .update(schema.requirements)
     .set({
       status: status as "proposed" | "approved" | "done" | "dropped",
       approvedBy: status === "approved" ? "you" : undefined,
       updatedAt: new Date(),
     })
-    .where(eq(schema.requirements.id, id));
+    .where(eq(schema.requirements.id, id))
+    .returning();
+  if (row) await recordVersion(row, { changedBy: "you", reason: `Status set to ${status} by hand` }, before);
   revalidatePath("/", "layout");
 }
