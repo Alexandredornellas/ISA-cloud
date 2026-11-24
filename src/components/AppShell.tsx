@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import type { Channel } from "@/lib/channels";
 import { Icon, type IconName } from "@/components/Icon";
+import { LiveRefresh } from "@/components/LiveRefresh";
 
 /**
  * The frame around every screen: a sidebar with Ask ISA, the projects (with what needs you in
@@ -95,6 +96,7 @@ export function AppShell({ channels, dueReminders, peopleSuggestions = 0, intake
       ) : null}
 
       <main className="min-w-0">{children}</main>
+      <LiveRefresh />
     </div>
   );
 }
