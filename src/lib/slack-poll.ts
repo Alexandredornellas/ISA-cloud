@@ -10,6 +10,9 @@ const FIRST_LOOK_SECONDS = 60 * 60;
 /** Wait this long after a message so a burst of messages becomes one item. */
 const SETTLE_SECONDS = 20;
 const CONVERSATIONS_TTL_MS = 5 * 60_000;
+/** Earlier messages shown with a new top-level message: up to this many, from the last 3 hours. */
+const RECENT_MESSAGES = 10;
+const RECENT_SECONDS = 3 * 60 * 60;
 const STATE_KEY = "slack";
 
 let conversationsCache: { at: number; list: SlackConversation[] } | null = null;
@@ -55,8 +58,16 @@ export async function pollSlack(slack: Reader, now = Date.now()): Promise<number
         groups.set(root, g);
       };
 
-      for (const m of await slack.history(conv.id)) {
-        if (isNew(m)) add(m.thread_ts ?? m.ts, m);
+      const history = await slack.history(conv.id);
+      // A DM or channel without threads is one running conversation: the messages just before the
+      // new ones give a short reply ("on it!", "sounds good, go ahead") its meaning.
+      const recentBefore = (ts: string) =>
+        history
+          .filter((x) => wanted(x) && !x.thread_ts && tsNum(x.ts) < tsNum(ts) && tsNum(x.ts) > tsNum(ts) - RECENT_SECONDS)
+          .sort((a, b) => tsNum(a.ts) - tsNum(b.ts))
+          .slice(-RECENT_MESSAGES);
+      for (const m of history) {
+        if (isNew(m)) add(m.thread_ts ?? m.ts, m, m.thread_ts ? [] : recentBefore(m.ts));
         if (m.reply_count && m.latest_reply && tsNum(m.latest_reply) > cursor) {
           const thread = await slack.replies(conv.id, m.ts);
           const fresh = thread.slice(1).filter(isNew);
@@ -113,7 +124,7 @@ async function storeGroup(
 
   const parts = [`Slack conversation: ${where}`];
   if (context.length) {
-    parts.push("Earlier in this thread:");
+    parts.push(root === fresh[0].ts && !fresh[0].thread_ts ? "Earlier in this conversation:" : "Earlier in this thread:");
     for (const m of context.slice(0, 1).concat(context.slice(1).slice(-9))) parts.push((await line(m)).slice(0, 800));
     parts.push("New messages:");
   }

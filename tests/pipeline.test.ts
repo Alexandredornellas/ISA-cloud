@@ -171,6 +171,40 @@ describe("processEvent", () => {
     expect(ev?.status).toBe("sorted");
   });
 
+  it("asks once when unsure about several projects, best guess first", async () => {
+    const [a, b] = [await addProject("Boss fights"), await addProject("Guest checkout")];
+    const e = await addEvent("onit!");
+    const { llm } = scripted(
+      {
+        matches: [
+          { projectId: b.id, relation: "context", confidence: "low", requirementIds: [], note: "maybe checkout" },
+          { projectId: a.id, relation: "context", confidence: "medium", requirementIds: [], note: "maybe the boss buff" },
+        ],
+        newProject: null,
+        ignore: false,
+        reason: "",
+      },
+      plan,
+    );
+    await processEvent(e.id, llm);
+    const questions = await db.select().from(schema.proposals);
+    expect(questions.map((q) => [q.kind, q.projectId])).toEqual([["clarify", a.id]]);
+  });
+
+  it("tells Claude where earlier messages of the same conversation were filed", async () => {
+    const p = await addProject("Boss fights");
+    const at = Date.now();
+    const [earlier] = await db
+      .insert(schema.events)
+      .values({ source: "slack", externalId: `D42:1.1:1.1`, title: "DM: add 20 armor to the boss", occurredAt: new Date(at - 60_000), content: "x", status: "sorted" })
+      .returning();
+    await db.insert(schema.eventProjects).values({ eventId: earlier.id, projectId: p.id, relation: "new", note: "Boss gets +20 armor and 1.3x health" });
+    const [reply] = await db.insert(schema.events).values({ source: "slack", externalId: `D42:2.2:2.2`, title: "DM: onit!", occurredAt: new Date(at), content: "onit!" }).returning();
+    const { llm, calls } = scripted({ matches: [], newProject: null, ignore: true, reason: "" }, plan);
+    await processEvent(reply.id, llm);
+    expect(calls[0].input).toContain("Earlier items from this same conversation were filed to:\n- Boss fights: Boss gets +20 armor and 1.3x health");
+  });
+
   it("ignores unrelated items", async () => {
     const e = await addEvent("Lunch?");
     const { llm } = scripted({ matches: [], newProject: null, ignore: true, reason: "small talk" }, plan);

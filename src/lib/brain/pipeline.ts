@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, like, lte, ne } from "drizzle-orm";
 import { syncJira, type JiraReader } from "@/lib/jira-sync";
 import { db, schema } from "@/db";
 import { DraftSchema, DraftWithDetailsSchema, SortDraftSchema, fromDraft, fromSortDraft, type Plan, type SortResult } from "@/lib/plan";
@@ -64,7 +64,7 @@ export async function processEvent(eventId: string, llm: StructuredLLM): Promise
     const raw = await llm({
       system: SORT_SYSTEM,
       context,
-      input: `${await ownerLine()}New item:\n${eventText(event)}`,
+      input: `${await ownerLine()}${await conversationSoFar(event)}New item:\n${eventText(event)}`,
       schema: SortDraftSchema,
       effort: "medium",
     }).then(fromSortDraft);
@@ -85,9 +85,12 @@ export async function processEvent(eventId: string, llm: StructuredLLM): Promise
           const id = await proposeUpdate(match.projectId, [event], llm, terms, focusText(match.note, others.map((m) => m.note)));
           if (id) proposalIds.push(id);
         }
-      } else {
+      } else if (!unsure) {
+        // One question per item: the card offers every project, with ISA's best guess first.
         unsure = true;
-        proposalIds.push(await askWhichProject(event, match.projectId, match.note));
+        const rank = { high: 0, medium: 1, low: 2 } as const;
+        const best = sort.matches.filter((m) => m.confidence !== "high").sort((a, b) => rank[a.confidence] - rank[b.confidence])[0];
+        proposalIds.push(await askWhichProject(event, best.projectId, best.note));
       }
     }
 
@@ -111,6 +114,34 @@ export async function processEvent(eventId: string, llm: StructuredLLM): Promise
       .where(eq(schema.events.id, event.id));
     throw err;
   }
+}
+
+/**
+ * Where earlier items of the same conversation (a Slack DM, channel or thread, or an email
+ * thread) were filed in the last day, so a short reply can follow the message it answers.
+ */
+async function conversationSoFar(event: EventRow): Promise<string> {
+  const prefix = event.source === "slack" ? `${event.externalId.split(":")[0]}:` : null;
+  if (!prefix) return "";
+  const since = new Date(event.occurredAt.getTime() - 24 * 3600_000);
+  const rows = await db
+    .select({ title: schema.events.title, at: schema.events.occurredAt, project: schema.projects.name, note: schema.eventProjects.note })
+    .from(schema.events)
+    .innerJoin(schema.eventProjects, eq(schema.eventProjects.eventId, schema.events.id))
+    .innerJoin(schema.projects, eq(schema.projects.id, schema.eventProjects.projectId))
+    .where(
+      and(
+        eq(schema.events.source, event.source),
+        like(schema.events.externalId, `${prefix.replace(/[%_]/g, "")}%`),
+        ne(schema.events.id, event.id),
+        gte(schema.events.occurredAt, since),
+        lte(schema.events.occurredAt, event.occurredAt),
+      ),
+    )
+    .orderBy(desc(schema.events.occurredAt))
+    .limit(8);
+  if (!rows.length) return "";
+  return `Earlier items from this same conversation were filed to:\n${rows.map((r) => `- ${r.project}: ${r.note || r.title}`).join("\n")}\n\n`;
 }
 
 /** Drop matches to projects that do not exist, and repeated matches to the same project. */

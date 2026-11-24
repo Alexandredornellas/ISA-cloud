@@ -60,7 +60,8 @@ describe("pollSlack", () => {
     const events = await db.select().from(schema.events);
     const top = events.find((e) => e.replyTo?.threadTs === ts(100))!;
     expect(top).toMatchObject({ source: "slack", author: "Alexandre", replyTo: { channel: "C1", threadTs: ts(100) } });
-    expect(top.content).toBe("Slack conversation: #login\nAlexandre: MFA should also allow SMS @Ana");
+    // The message just before it in the channel comes along, so short replies keep their meaning.
+    expect(top.content).toBe("Slack conversation: #login\nEarlier in this conversation:\nAna: Login spec\nNew messages:\nAlexandre: MFA should also allow SMS @Ana");
     expect(top.participants.map((p) => p.slackUserId).sort()).toEqual(["U1", "U2"]);
 
     const thread = events.find((e) => e.replyTo?.threadTs === root)!;

@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useOptimistic, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { sendChatMessage } from "@/app/(app)/chat/actions";
 
 export type Message = { id: string; role: "user" | "assistant" | "log"; text: string; used?: string[] };
 
@@ -67,11 +67,18 @@ export function ChatPanel({
   /** Send `initial` right away (a question asked from the home screen). */
   autoSend?: boolean;
 }) {
-  const [optimistic, addOptimistic] = useOptimistic(messages, (state, text: string) => [
-    ...state,
-    { id: "pending", role: "user" as const, text },
-  ]);
-  const [pending, startTransition] = useTransition();
+  const router = useRouter();
+  // The message being answered: shown right away, and gone once the saved chat comes back.
+  const [sending, setSending] = useState<string | null>(null);
+  const pending = sending !== null;
+  const optimistic = sending ? [...messages, { id: "pending", role: "user" as const, text: sending }] : messages;
+  const seen = useRef(messages.length);
+  useEffect(() => {
+    if (messages.length !== seen.current) {
+      seen.current = messages.length;
+      setSending(null);
+    }
+  }, [messages.length]);
   const [error, setError] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const boxRef = useRef<HTMLTextAreaElement>(null);
@@ -83,16 +90,19 @@ export function ChatPanel({
     if (!text.trim()) return;
     setError(null);
     formRef.current?.reset();
-    startTransition(async () => {
-      addOptimistic(text);
-      const form = new FormData();
-      form.set("text", text);
-      if (projectId) form.set("projectId", projectId);
-      if (replyTo) form.set("proposalId", replyTo.id);
-      onClearReply?.();
-      const failed = await sendChatMessage(form).catch(() => "ISA could not answer.");
-      if (failed) setError(failed);
-    });
+    setSending(text);
+    const proposalId = replyTo?.id ?? null;
+    onClearReply?.();
+    // A plain request (not a server action), so the rest of the app stays usable while ISA thinks.
+    fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, projectId: projectId ?? null, proposalId }) })
+      .then((r) => r.json() as Promise<{ error: string | null }>)
+      .catch(() => ({ error: "ISA could not answer." }))
+      .then(({ error: failed }) => {
+        if (failed) {
+          setError(failed);
+          setSending(null);
+        } else router.refresh();
+      });
   }
 
   const sentInitial = useRef(false);
