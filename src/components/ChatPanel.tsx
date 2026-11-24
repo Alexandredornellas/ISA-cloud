@@ -72,13 +72,21 @@ export function ChatPanel({
   const [sending, setSending] = useState<string | null>(null);
   const pending = sending !== null;
   const optimistic = sending ? [...messages, { id: "pending", role: "user" as const, text: sending }] : messages;
-  const seen = useRef(messages.length);
+  // Clear the pending message only once ISA has answered and the saved chat has come back. A live
+  // refresh while ISA is still thinking can bring other new lines, and must not hide "checking".
+  const atSend = useRef(messages.length);
+  const [answered, setAnswered] = useState(false);
   useEffect(() => {
-    if (messages.length !== seen.current) {
-      seen.current = messages.length;
+    if (!answered) return;
+    const done = () => {
+      setAnswered(false);
       setSending(null);
-    }
-  }, [messages.length]);
+    };
+    if (messages.length !== atSend.current) return done();
+    // Safety net: never leave "checking" up if the refreshed chat somehow looks the same.
+    const t = setTimeout(done, 10_000);
+    return () => clearTimeout(t);
+  }, [answered, messages.length]);
   const [error, setError] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const boxRef = useRef<HTMLTextAreaElement>(null);
@@ -90,6 +98,8 @@ export function ChatPanel({
     if (!text.trim()) return;
     setError(null);
     formRef.current?.reset();
+    atSend.current = messages.length;
+    setAnswered(false);
     setSending(text);
     const proposalId = replyTo?.id ?? null;
     onClearReply?.();
@@ -101,7 +111,10 @@ export function ChatPanel({
         if (failed) {
           setError(failed);
           setSending(null);
-        } else router.refresh();
+        } else {
+          setAnswered(true);
+          router.refresh();
+        }
       });
   }
 
