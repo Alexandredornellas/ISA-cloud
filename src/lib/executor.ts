@@ -293,7 +293,8 @@ async function runAction(
   switch (action.type) {
     case "jira_create": {
       const jira = need(senders.jira, "Jira");
-      const projectKey = (await jiraKeyFor(projectId)) ?? undefined;
+      // Where ISA judged the ticket belongs, else the project's Jira project.
+      const projectKey = action.jiraProject || ((await jiraKeyFor(projectId)) ?? undefined);
       const issue = await jira.createIssue({
         projectKey,
         summary: action.summary,

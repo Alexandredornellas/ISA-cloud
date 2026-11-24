@@ -44,7 +44,11 @@ const JiraCreateBase = z.object({
     .describe("The epic this ticket goes under: an existing epic's Jira key (e.g. SCRUM-1), or the requirementRef of an epic created earlier in this plan. Null for an epic, or when no epic fits."),
 });
 
-const JiraCreate = JiraCreateBase.extend({ details: TicketDetailsSchema.nullable().optional() });
+const JIRA_PROJECT_HELP =
+  'Key of the Jira project to create it in (e.g. CHK), chosen from what ISA knows: where the related tickets, the epic or this project\'s other tickets live. "" uses the project\'s default.';
+// Drafts always say where the ticket goes; plans saved before this have no jiraProject.
+const DraftCreate = JiraCreateBase.extend({ jiraProject: z.string().describe(JIRA_PROJECT_HELP) });
+const JiraCreate = JiraCreateBase.extend({ details: TicketDetailsSchema.nullable().optional(), jiraProject: z.string().optional() });
 
 const JiraUpdate = z.object({
   type: z.literal("jira_update"),
@@ -117,7 +121,7 @@ const draftSchemas = (withDetails: boolean) =>
   PlanSchema.extend({
     actions: z.array(
       z.union([
-        withDetails ? JiraCreateBase.extend({ details: DraftTicketDetails.describe("For epics, leave every field empty") }) : JiraCreateBase,
+        withDetails ? DraftCreate.extend({ details: DraftTicketDetails.describe("For epics, leave every field empty") }) : DraftCreate,
         JiraUpdate,
         JiraComment,
         JiraClose,
@@ -135,6 +139,7 @@ export function fromDraft(draft: z.infer<typeof DraftWithDetailsSchema> | z.infe
   return {
     ...draft,
     actions: draft.actions.map((a): Action => {
+      if (a.type === "jira_create") a = { ...a, jiraProject: (a.jiraProject ?? "").trim().toUpperCase() };
       if (a.type !== "jira_create" || !("details" in a) || !a.details) return a as Action;
       const d = a.details as z.infer<typeof DraftTicketDetails>;
       if (a.kind === "epic") return { ...a, details: null };
@@ -256,7 +261,7 @@ const KIND_LABEL: Record<string, string> = {
 export function describeAction(a: Action): string {
   switch (a.type) {
     case "jira_create":
-      return `Create ${KIND_LABEL[a.kind] ?? "ticket"}: ${a.summary}${a.epicRef && a.kind !== "epic" ? ` (under epic ${a.epicRef})` : ""}`;
+      return `Create ${KIND_LABEL[a.kind] ?? "ticket"}${a.jiraProject ? ` in ${a.jiraProject}` : ""}: ${a.summary}${a.epicRef && a.kind !== "epic" ? ` (under epic ${a.epicRef})` : ""}`;
     case "jira_update":
       return `Update ${a.issueKey ?? a.requirementRef}${a.summary ? `: ${a.summary}` : ""}`;
     case "jira_comment":

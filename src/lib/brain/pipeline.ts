@@ -7,7 +7,7 @@ import { PROPOSE_SYSTEM, SORT_SYSTEM } from "./prompts";
 import type { StructuredLLM } from "./llm";
 import { formatsText, ticketFormats } from "@/lib/ticket-formats";
 import { openSprintNames, relatedTicketsBlock } from "@/lib/jira-research";
-import { jiraKeyFor } from "@/lib/jira-project";
+import { jiraKeyFor, jiraProjectsText } from "@/lib/jira-project";
 import { asksDetails, getSettings, settingsText } from "@/lib/settings";
 import { keepToProject, owners } from "@/lib/ownership";
 import { saveCommitments } from "@/lib/reminders";
@@ -32,7 +32,7 @@ async function withFormats(context: string, terms: string[] = [], projectId: str
   const [related, settings] = await Promise.all([relatedTicketsBlock(terms, projectId), getSettings()]);
   const jiraKey = await jiraKeyFor(projectId);
   const sprints = settings.askSprint ? await openSprintNames(jiraKey) : [];
-  const keyText = jiraKey ? `New Jira tickets for this project are created in Jira project ${jiraKey}.` : "";
+  const keyText = await jiraProjectsText(projectId);
   const sprintText = settings.askSprint ? `Open sprints in Jira project ${jiraKey ?? "?"}: ${sprints.length ? sprints.map((n) => `"${n}"`).join(", ") : "none found"}` : "";
   return [formatsText(await ticketFormats()), settingsText(settings), keyText, sprintText, context, related].filter(Boolean).join("\n\n");
 }

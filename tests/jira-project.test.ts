@@ -48,8 +48,21 @@ describe("Jira project per ISA project", () => {
     expect(r.ok).toBe(true);
     expect(calls).toEqual(["create CHK", "sprints CHK", "move CHK-1 7"]);
 
-    // Clearing it goes back to the default.
+    // Cleared, it learns from where the project's tickets live (CHK-1 now), else the default.
     await setJiraKey(project.id, "");
-    expect(await jiraKeyFor(project.id)).toBe("SCRUM");
+    expect(await jiraKeyFor(project.id)).toBe("CHK");
+    const [empty] = await db.insert(schema.projects).values({ name: "Empty" }).returning();
+    expect(await jiraKeyFor(empty.id)).toBe("SCRUM");
+  });
+
+  it("creates a ticket in the Jira project ISA chose for it", async () => {
+    process.env.JIRA_PROJECT_KEY = "SCRUM";
+    const [project] = await db.insert(schema.projects).values({ name: "Checkout" }).returning();
+    const calls: string[] = [];
+    const jira = { createIssue: async (i: { projectKey?: string }) => (calls.push(`create ${i.projectKey}`), { key: "PAY-3", url: "u" }) } as unknown as JiraClient;
+    const chosen: Plan = { ...plan, actions: [{ ...plan.actions[0], details: null, jiraProject: "PAY" } as Plan["actions"][number]] };
+    const [p] = await db.insert(schema.proposals).values({ kind: "update", projectId: project.id, title: "t", plan: chosen }).returning();
+    await executeProposal(p.id, { jira, slack: null, email: null });
+    expect(calls).toEqual(["create PAY"]);
   });
 });
