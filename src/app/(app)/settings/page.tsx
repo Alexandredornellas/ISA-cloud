@@ -1,6 +1,7 @@
 import { DEFAULT_FORMATS, ticketFormats } from "@/lib/ticket-formats";
 import { SubmitButton } from "@/components/SubmitButton";
-import { resetTicketFormat, saveDraftingSettings, saveTicketFormat } from "./actions";
+import { resetTicketFormat, saveDraftingSettings, saveTicketFormat, startBlankAction } from "./actions";
+import { blankBackups } from "@/lib/reset";
 import { getSettings } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
@@ -14,8 +15,8 @@ const ASKS = [
 
 const input = "w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm";
 
-export default async function SettingsPage() {
-  const [formats, settings] = await Promise.all([ticketFormats(), getSettings()]);
+export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ blank?: string }> }) {
+  const [formats, settings, backups, { blank }] = await Promise.all([ticketFormats(), getSettings(), blankBackups(), searchParams]);
   return (
     <div className="mx-auto max-w-3xl px-4 py-7 sm:px-8">
       <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Settings</h1>
@@ -112,6 +113,25 @@ export default async function SettingsPage() {
         Use the ticket type names exactly as your Jira shows them, e.g. &quot;Tarefa&quot; on a Portuguese site. If a type is missing,
         ISA asks you what to use instead before creating the ticket.
       </p>
+
+      <h2 id="start-blank" className="mt-10 text-lg font-semibold">Start blank</h2>
+      {blank ? (
+        <p role="status" className="mt-2 rounded-lg border border-ok/40 bg-ok/10 p-3 text-sm">
+          ISA&apos;s memory is empty. Everything from before is kept in the backup <code>{blank}</code>.
+        </p>
+      ) : null}
+      <form action={startBlankAction} className="mt-3 rounded-xl border border-danger/40 bg-surface p-4">
+        <p className="text-sm">
+          Empties ISA&apos;s memory so you can test from scratch: projects, items, decisions and their versions, people, reminders, diagrams and
+          chats. Your connections (Google, Slack, Jira), these settings and ticket formats stay. Nothing in Jira, Slack or email is touched.
+        </p>
+        <p className="mt-2 text-sm text-muted">A full copy is saved in the database first, so it can be restored if you ask.</p>
+        <label className="mt-3 flex items-center gap-2 text-sm">
+          <input type="checkbox" name="confirm" required className="h-4 w-4" /> I want to empty ISA&apos;s memory
+        </label>
+        <SubmitButton className="mt-3 rounded-lg bg-danger px-3 py-2 text-sm font-medium text-white">Start blank</SubmitButton>
+        {backups.length ? <p className="mt-3 text-xs text-muted">Backups kept: {backups.join(", ")}</p> : null}
+      </form>
     </div>
   );
 }

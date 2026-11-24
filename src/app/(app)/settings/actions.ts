@@ -4,6 +4,8 @@ import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { saveSettings } from "@/lib/settings";
+import { startBlank } from "@/lib/reset";
+import { redirect } from "next/navigation";
 import { DEFAULT_FORMATS, saveTicketFormat as save, TICKET_KINDS, type TicketKind } from "@/lib/ticket-formats";
 
 function kindOf(form: FormData): TicketKind {
@@ -42,4 +44,13 @@ export async function saveDraftingSettings(form: FormData) {
     ownerName: String(form.get("ownerName") ?? ""),
   });
   revalidatePath("/settings");
+}
+
+/** Empty ISA's memory after a backup copy. Only with the box ticked. */
+export async function startBlankAction(form: FormData) {
+  if (form.get("confirm") !== "on") return;
+  const { backup, cleared } = await startBlank();
+  console.log("start blank", { backup, cleared });
+  revalidatePath("/", "layout");
+  redirect(`/settings?blank=${backup}#start-blank`);
 }
