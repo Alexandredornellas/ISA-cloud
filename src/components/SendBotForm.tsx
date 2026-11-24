@@ -28,7 +28,7 @@ export function SendBotForm() {
         {state.ok ? <p className="text-sm text-ok">ISA Notetaker is on its way.</p> : null}
       </div>
       <p className="text-xs text-muted">
-        It joins as &quot;ISA Notetaker&quot;, visible to everyone in the call. A minute or two after the call ends, ISA reads the transcript and posts what needs you.
+        It joins as &quot;ISA Notetaker&quot;, visible to everyone in the call. A minute or two after the call ends, or after you press &quot;Leave the call&quot; below, ISA reads the transcript and posts what needs you.
       </p>
     </form>
   );

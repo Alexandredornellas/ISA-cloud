@@ -144,6 +144,9 @@ export const proposals = pgTable(
     // When its requirement changes and people were saved to the project's memory. Memory is saved
     // as soon as an item is filed; approval only covers the outside steps (Jira, Slack, email).
     memoryAppliedAt: timestamp("memory_applied_at", { withTimezone: true }),
+    // The draft as it stood before the latest items (or the owner's correction) changed it, so the
+    // card can show what the new information changed. Null for a draft that was never redrafted.
+    previousPlan: jsonb("previous_plan").$type<Plan>(),
     error: text("error"),
     decidedAt: timestamp("decided_at", { withTimezone: true }),
     ...timestamps,

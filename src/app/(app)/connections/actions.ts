@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { importPage } from "@/lib/confluence";
 import { db, schema } from "@/db";
 import { RecallClient, platformOf, recallConfigFromEnv } from "@/lib/recall";
+import { botAlreadyFor, leaveMeeting } from "@/lib/meeting-bots";
 
 export type SendBotState = { error: string | null; ok: boolean };
 
@@ -25,6 +26,10 @@ export async function sendBotToMeeting(_prev: SendBotState, form: FormData): Pro
   }
 
   try {
+    const already = await botAlreadyFor(meetingUrl, joinAt ?? new Date());
+    if (already) {
+      return { ok: false, error: already.status === "in_call" ? "ISA Notetaker is already in this meeting." : "ISA Notetaker is already on its way to this meeting." };
+    }
     const recall = new RecallClient(recallConfigFromEnv());
     const bot = await recall.createBot(meetingUrl, joinAt);
     await db.insert(schema.meetingBots).values({
@@ -40,6 +45,16 @@ export async function sendBotToMeeting(_prev: SendBotState, form: FormData): Pro
   }
   revalidatePath("/", "layout");
   return { ok: true, error: null };
+}
+
+/** "Leave the call" on the Meetings page: the bot leaves now and ISA reads the transcript. */
+export async function leaveMeetingAction(form: FormData) {
+  try {
+    await leaveMeeting(String(form.get("id") ?? ""), new RecallClient(recallConfigFromEnv()));
+  } catch (err) {
+    console.error("leave meeting failed", { error: err instanceof Error ? err.name : "unknown" });
+  }
+  revalidatePath("/", "layout");
 }
 
 /** Turn calendar auto-join on or off. */

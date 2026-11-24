@@ -36,6 +36,16 @@ export function platformOf(url: string): "zoom" | "meet" | "teams" | null {
   return null;
 }
 
+/** The meeting a link points to, without its query (passcodes and tracking differ between copies of one link). */
+export function meetingKey(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.hostname.toLowerCase()}${u.pathname.replace(/\/+$/, "")}`;
+  } catch {
+    return url.trim();
+  }
+}
+
 export class RecallClient {
   constructor(
     private readonly cfg: RecallConfig,
@@ -56,7 +66,9 @@ export class RecallClient {
       const detail = await res.text().catch(() => "");
       throw new Error(`Recall.ai ${method} ${path} failed (${res.status}): ${detail.slice(0, 300)}`);
     }
-    return (await res.json()) as T;
+    // Some calls (leave_call) may answer with an empty body.
+    const text = await res.text();
+    return (text ? JSON.parse(text) : undefined) as T;
   }
 
   /** Send the bot to a meeting now, or at joinAt (at least 10 minutes ahead is guaranteed on time). */
@@ -80,6 +92,11 @@ export class RecallClient {
         },
       },
     });
+  }
+
+  /** Ask the bot to leave the call now. Recall then finishes the transcript as after any call. */
+  async leaveCall(botId: string): Promise<void> {
+    await this.request("POST", `/bot/${encodeURIComponent(botId)}/leave_call/`);
   }
 
   async getBotState(botId: string): Promise<BotState> {
