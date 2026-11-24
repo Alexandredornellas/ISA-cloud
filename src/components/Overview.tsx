@@ -224,7 +224,7 @@ export function Overview({
         <div className="space-y-8 p-4 sm:px-8 xl:px-4">
           <section>
             <h2 className="mb-2 flex items-center justify-between text-sm font-semibold">
-              Who owes what this week
+              To-do & waiting this week
               <Link href="/reminders" className="text-xs font-normal text-accent hover:underline">
                 All
               </Link>

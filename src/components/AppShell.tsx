@@ -35,7 +35,7 @@ export function AppShell({ channels, dueReminders, peopleSuggestions = 0, intake
       <Group label="Know" />
       <Item href="/decisions" icon="memory" label="Decisions" count={0} match="/decisions" />
       <Item href="/people" icon="users" label="Who knows what" count={peopleSuggestions} match="/people" />
-      <Item href="/reminders" icon="bell" label="Who owes what" count={dueReminders} match="/reminders" />
+      <Item href="/reminders" icon="bell" label="To-do & waiting" count={dueReminders} match="/reminders" />
 
       <Group label="Create" />
       <Item href="/diagrams" icon="flow" label="Diagrams" count={0} match="/diagrams" />

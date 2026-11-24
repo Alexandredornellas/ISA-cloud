@@ -16,10 +16,12 @@ export default async function RemindersPage() {
     db.select({ id: schema.projects.id, name: schema.projects.name }).from(schema.projects).orderBy(desc(schema.projects.updatedAt)),
   ]);
   return (
-    <div className="mx-auto max-w-3xl px-4 py-7 sm:px-8">
-      <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Who owes what</h1>
+    <div className="mx-auto max-w-5xl px-4 py-7 sm:px-8">
+      <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">To-do &amp; waiting on</h1>
       <p className="mt-1 text-sm text-muted">
-        What you promised, and what others promised you, across all projects. ISA picks these up from meetings, email and Slack. They are only for you: ISA never sends anything from here.
+        Like a secretary, ISA listens to your meetings, email and Slack and keeps two lists: what people asked you to do (&ldquo;share that doc with me on
+        Friday&rdquo;) and what others promised you (&ldquo;I&apos;ll send the contract today&rdquo;), with who, when and the exact words. Only you see them: ISA
+        never sends anything from here.
       </p>
 
       <form action={newReminder} className="mt-5 grid gap-2 rounded-xl border border-line bg-surface p-3 sm:grid-cols-[140px_minmax(0,1fr)_150px_150px_auto]">
@@ -41,14 +43,18 @@ export default async function RemindersPage() {
         <SubmitButton className="bg-accent text-white">Add</SubmitButton>
       </form>
 
-      <section className="mt-7">
-        <h2 className="mb-3 text-sm font-semibold">You owe · {open.filter((r) => r.direction === "mine").length}</h2>
-        <ReminderList reminders={open.filter((r) => r.direction === "mine")} empty="Nothing you owe right now." />
-      </section>
-      <section className="mt-8">
-        <h2 className="mb-3 text-sm font-semibold">Waiting on others · {open.filter((r) => r.direction === "theirs").length}</h2>
-        <ReminderList reminders={open.filter((r) => r.direction === "theirs")} empty="Nobody owes you anything right now. When someone promises you something, ISA tracks it here so you can follow up." />
-      </section>
+      <div className="mt-7 grid gap-8 lg:grid-cols-2">
+        <section>
+          <h2 className="text-sm font-semibold">To-do · {open.filter((r) => r.direction === "mine").length}</h2>
+          <p className="mb-3 text-xs text-muted">What someone asked you to do, or you promised.</p>
+          <ReminderList reminders={open.filter((r) => r.direction === "mine")} empty="Nothing to do right now. When someone asks you for something, ISA adds it here." />
+        </section>
+        <section>
+          <h2 className="text-sm font-semibold">Waiting on · {open.filter((r) => r.direction === "theirs").length}</h2>
+          <p className="mb-3 text-xs text-muted">What others promised you, so you can follow up.</p>
+          <ReminderList reminders={open.filter((r) => r.direction === "theirs")} empty="Nobody owes you anything right now. When someone promises you something, ISA tracks it here." />
+        </section>
+      </div>
 
       {done.length ? (
         <details className="mt-8">
