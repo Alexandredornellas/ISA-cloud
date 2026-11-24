@@ -7,6 +7,8 @@ import type { Plan } from "@/lib/plan";
 import { getSettings, type Settings } from "@/lib/settings";
 import { openSprintNames } from "@/lib/jira-research";
 import { jiraKeyFor } from "@/lib/jira-project";
+import { jiraSearcher } from "@/lib/jira-research";
+import type { JiraClient } from "@/lib/jira";
 
 export type Channel = { id: string | null; name: string; count: number; done: boolean };
 
@@ -58,7 +60,43 @@ export type Notification = {
   sprints: string[];
   /** Requirement changes already saved to the project's memory, with the requirement they became. */
   saved: { title: string; op: string; requirementId: string | null }[];
+  /** What each ticket this suggestion updates says in Jira now, by key, to show what changes. */
+  current: Record<string, { summary: string; description: string }>;
 };
+
+const currentCache = new Map<string, { at: number; summary: string; description: string }>();
+
+/** The tickets' title and description as Jira has them now (a minute's cache), else ISA's last snapshot. */
+async function currentTickets(keys: string[]): Promise<Record<string, { summary: string; description: string }>> {
+  const out: Record<string, { summary: string; description: string }> = {};
+  const want = [...new Set(keys)].filter((k) => /^[A-Z][A-Z0-9_]+-\d+$/.test(k));
+  const stale = want.filter((k) => {
+    const hit = currentCache.get(k);
+    if (hit && Date.now() - hit.at < 60_000) out[k] = { summary: hit.summary, description: hit.description };
+    return !out[k];
+  });
+  if (!stale.length) return out;
+  const jira = jiraSearcher();
+  try {
+    if (jira && "ticketDetails" in jira) {
+      for (const t of await (jira as JiraClient).ticketDetails(stale)) {
+        out[t.key] = { summary: t.summary, description: t.description };
+        currentCache.set(t.key, { at: Date.now(), ...out[t.key] });
+      }
+    }
+  } catch (err) {
+    console.error("jira current text failed", { error: err instanceof Error ? err.name : "unknown" });
+  }
+  const missing = stale.filter((k) => !out[k]);
+  if (missing.length) {
+    const rows = await db
+      .select({ key: schema.jiraTickets.key, summary: schema.jiraTickets.summary, description: schema.jiraTickets.description })
+      .from(schema.jiraTickets)
+      .where(inArray(schema.jiraTickets.key, missing));
+    for (const r of rows) out[r.key] = { summary: r.summary, description: r.description };
+  }
+  return out;
+}
 
 export async function notifications(channelId: string | null): Promise<Notification[]> {
   const rows = await db.query.proposals.findMany({
@@ -93,6 +131,8 @@ export async function notifications(channelId: string | null): Promise<Notificat
   const asks = await getSettings();
   const creates = rows.some((r) => r.plan.actions.some((a) => a.type === "jira_create" && a.kind !== "epic"));
   const sprints = asks.askSprint && creates ? await openSprintNames(await jiraKeyFor(channelId)) : [];
+  const updating = rows.flatMap((r) => r.plan.actions.flatMap((a) => (a.type === "jira_update" && a.issueKey ? [a.issueKey] : [])));
+  const current = updating.length ? await currentTickets(updating) : {};
   const existingEpics = epics
     .filter((t) => /^(epic|[eé]pico|[eé]pica|epique)$/i.test(t.issueType ?? ""))
     .map((t) => ({ key: t.key, label: `${t.key} ${t.summary}` }));
@@ -118,6 +158,9 @@ export async function notifications(channelId: string | null): Promise<Notificat
     question: questions.find((q) => q.proposalId === r.id) ?? null,
     asks,
     sprints,
+    current: Object.fromEntries(
+      r.plan.actions.flatMap((a) => (a.type === "jira_update" && a.issueKey && current[a.issueKey] ? [[a.issueKey, current[a.issueKey]]] : [])),
+    ),
   }));
 }
 

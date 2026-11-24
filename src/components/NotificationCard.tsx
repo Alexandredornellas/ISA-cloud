@@ -8,6 +8,7 @@ import { SubmitButton } from "@/components/SubmitButton";
 import { QuestionCard } from "@/components/QuestionCard";
 import { SourceMark } from "@/components/SourceMark";
 import { SOURCES, sourceOf, timeAgo } from "@/lib/sources";
+import { diffWords, type DiffPart } from "@/lib/diff";
 
 const KIND = { update: "Change", new_project: "New project", clarify: "Unclear" } as const;
 
@@ -256,7 +257,9 @@ export function NotificationCard({
                             )}
                             <span className="min-w-0 text-sm">
                               <span className="block font-medium">{isEpic ? `Create epic: ${epicName}` : stepLabel(a)}</span>
-                              {detail ? (
+                              {a.type === "jira_update" && a.issueKey && n.current[a.issueKey] ? (
+                                <TicketChange now={n.current[a.issueKey]} summary={a.summary} description={a.description} />
+                              ) : detail ? (
                                 <details className="mt-1">
                                   <summary className="cursor-pointer text-xs text-muted">Show text</summary>
                                   <p className="mt-1 whitespace-pre-wrap text-muted">{detail}</p>
@@ -373,5 +376,57 @@ function TicketAsks({ n, a, i, newEpicRef }: { n: Notification; a: Action; i: nu
         ))}
       </div>
     </div>
+  );
+}
+
+/** How the ticket reads in Jira now vs after this update: removed in red and struck through, added in green. */
+function TicketChange({ now, summary, description }: { now: { summary: string; description: string }; summary: string | null; description: string | null }) {
+  const title = summary && summary !== now.summary ? diffWords(now.summary, summary) : null;
+  const body = description && description !== now.description ? diffWords(now.description, description) : null;
+  if (!title && !body) return <p className="mt-1 text-xs text-muted">Same as the ticket in Jira now.</p>;
+  return (
+    <details className="mt-1" open>
+      <summary className="cursor-pointer text-xs text-muted">
+        What changes in Jira{" "}
+        <span className="ml-1 inline-flex gap-2">
+          <span className="rounded bg-danger/10 px-1 text-danger line-through">now</span>
+          <span className="rounded bg-ok/15 px-1 text-ok">after</span>
+        </span>
+      </summary>
+      <div className="mt-2 space-y-2 rounded-md border border-line bg-bg p-2.5">
+        {title ? (
+          <p className="font-medium">
+            <Parts parts={title} />
+          </p>
+        ) : null}
+        {body ? (
+          <p className="max-h-96 overflow-y-auto whitespace-pre-wrap text-[13px] leading-relaxed">
+            <Parts parts={body} />
+          </p>
+        ) : null}
+      </div>
+    </details>
+  );
+}
+
+function Parts({ parts }: { parts: DiffPart[] }) {
+  return (
+    <>
+      {parts.map((p, i) =>
+        p.kind === "same" ? (
+          <span key={i} className="text-muted">
+            {p.text}
+          </span>
+        ) : p.kind === "removed" ? (
+          <del key={i} className="mr-1 rounded-sm bg-danger/10 text-danger decoration-danger/70" aria-label={`removed: ${p.text}`}>
+            {p.text}
+          </del>
+        ) : (
+          <ins key={i} className="rounded-sm bg-ok/15 text-ok no-underline" aria-label={`added: ${p.text}`}>
+            {p.text}
+          </ins>
+        ),
+      )}
+    </>
   );
 }

@@ -62,7 +62,7 @@ async function main() {
   ]).returning();
   await db.insert(schema.jiraTickets).values([
     { key: "CHK-10", projectId: checkout.id, issueType: "Epic", summary: "Checkout redesign", status: "In progress" },
-    { key: "CHK-14", projectId: checkout.id, issueType: "Story", summary: "Guest checkout without an account", status: "In progress" },
+    { key: "CHK-14", projectId: checkout.id, issueType: "Story", summary: "Guest checkout without an account", description: "Buyers can check out with email only and pay by card.\n\nWhy and sources\nRafael Costa, Loja Viva kickoff (Zoom), Nov 9: half of abandoned carts happen at sign-up.", status: "In progress" },
     { key: "CHK-12", projectId: checkout.id, issueType: "Story", summary: "Save cards for returning buyers", status: "In progress" },
     { key: "API-1", projectId: api.id, issueType: "Epic", summary: "Partner API v2", status: "In progress" },
     { key: "MOB-1", projectId: mobile.id, issueType: "Epic", summary: "Mobile onboarding", status: "In progress" },
