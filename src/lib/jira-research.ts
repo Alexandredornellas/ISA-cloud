@@ -73,16 +73,18 @@ export async function relatedTicketsBlock(terms: string[], projectId: string | n
   }
 }
 
-let sprintCache: { at: number; names: string[] } | null = null;
+const sprintCache = new Map<string, { at: number; names: string[] }>();
 
-/** Names of the project's active and future sprints (cached for a minute); empty when unknown. */
-export async function openSprintNames(): Promise<string[]> {
-  if (sprintCache && Date.now() - sprintCache.at < 60_000) return sprintCache.names;
+/** Names of a Jira project's active and future sprints (cached for a minute); empty when unknown. */
+export async function openSprintNames(jiraKey?: string | null): Promise<string[]> {
+  const key = jiraKey || process.env.JIRA_PROJECT_KEY || "";
+  const hit = sprintCache.get(key);
+  if (hit && Date.now() - hit.at < 60_000) return hit.names;
   const jira = jiraSearcher();
-  if (!jira || !("openSprints" in jira)) return [];
+  if (!key || !jira || !("openSprints" in jira)) return [];
   try {
-    const names = (await (jira as JiraClient).openSprints()).map((s) => s.name);
-    sprintCache = { at: Date.now(), names };
+    const names = (await (jira as JiraClient).openSprints(key)).map((s) => s.name);
+    sprintCache.set(key, { at: Date.now(), names });
     return names;
   } catch (err) {
     console.error("jira sprints failed", { error: err instanceof Error ? err.name : "unknown" });

@@ -7,6 +7,7 @@ import { PROPOSE_SYSTEM, SORT_SYSTEM } from "./prompts";
 import type { StructuredLLM } from "./llm";
 import { formatsText, ticketFormats } from "@/lib/ticket-formats";
 import { openSprintNames, relatedTicketsBlock } from "@/lib/jira-research";
+import { jiraKeyFor } from "@/lib/jira-project";
 import { asksDetails, getSettings, settingsText } from "@/lib/settings";
 import { keepToProject, owners } from "@/lib/ownership";
 import { saveCommitments } from "@/lib/reminders";
@@ -29,9 +30,11 @@ async function ownerLine(): Promise<string> {
 /** Context for drafting: the owner's ticket formats, then the project. */
 async function withFormats(context: string, terms: string[] = [], projectId: string | null = null): Promise<string> {
   const [related, settings] = await Promise.all([relatedTicketsBlock(terms, projectId), getSettings()]);
-  const sprints = settings.askSprint ? await openSprintNames() : [];
-  const sprintText = settings.askSprint ? `Open sprints in Jira: ${sprints.length ? sprints.map((n) => `"${n}"`).join(", ") : "none found"}` : "";
-  return [formatsText(await ticketFormats()), settingsText(settings), sprintText, context, related].filter(Boolean).join("\n\n");
+  const jiraKey = await jiraKeyFor(projectId);
+  const sprints = settings.askSprint ? await openSprintNames(jiraKey) : [];
+  const keyText = jiraKey ? `New Jira tickets for this project are created in Jira project ${jiraKey}.` : "";
+  const sprintText = settings.askSprint ? `Open sprints in Jira project ${jiraKey ?? "?"}: ${sprints.length ? sprints.map((n) => `"${n}"`).join(", ") : "none found"}` : "";
+  return [formatsText(await ticketFormats()), settingsText(settings), keyText, sprintText, context, related].filter(Boolean).join("\n\n");
 }
 
 /** What to search Jira for: the terms ISA picked when it sorted these items. */
@@ -244,7 +247,7 @@ async function mergeIntoWaiting(
 async function proposeNewProject(event: EventRow, name: string, llm: StructuredLLM, terms: string[] = termsOf([event])): Promise<string> {
   const [project] = await db
     .insert(schema.projects)
-    .values({ name, jiraProjectKey: process.env.JIRA_PROJECT_KEY ?? null })
+    .values({ name, jiraProjectKey: null })
     .returning({ id: schema.projects.id });
   await linkEvent(event.id, project.id, "new", "Started this project");
   const plan = await draft(llm, {

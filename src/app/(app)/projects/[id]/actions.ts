@@ -1,6 +1,7 @@
 "use server";
 
 import { recordVersion } from "@/lib/versions";
+import { setJiraKey } from "@/lib/jira-project";
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
@@ -47,5 +48,11 @@ export async function setRequirementStatus(form: FormData) {
     .where(eq(schema.requirements.id, id))
     .returning();
   if (row) await recordVersion(row, { changedBy: "you", reason: `Status set to ${status} by hand` }, before);
+  revalidatePath("/", "layout");
+}
+
+/** Which Jira project this ISA project creates tickets in ("" goes back to the default). */
+export async function setJiraProject(form: FormData) {
+  await setJiraKey(String(form.get("projectId")), String(form.get("key") ?? ""));
   revalidatePath("/", "layout");
 }

@@ -274,6 +274,12 @@ export class JiraClient {
     return byName(/^story point estimate$/i) ?? byName(/^story points$/i) ?? byName(/estimativa.*pontos|pontos.*hist[óo]ria|story point/i) ?? null;
   }
 
+  /** Jira projects this account can see: key and name. */
+  async listProjects(): Promise<{ key: string; name: string }[]> {
+    const page = await this.request<{ values: { key: string; name: string }[] }>("GET", "/project/search?maxResults=100&orderBy=name");
+    return page.values.map((p) => ({ key: p.key, name: p.name }));
+  }
+
   /** Active and future sprints on the project's boards, active first. */
   async openSprints(projectKey = this.cfg.projectKey): Promise<{ id: number; name: string; state: string }[]> {
     const boards = await this.request<{ values: { id: number; type: string }[] }>(

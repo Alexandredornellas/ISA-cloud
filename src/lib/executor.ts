@@ -2,6 +2,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { addProjectPeople } from "@/lib/people";
 import { recordVersion } from "@/lib/versions";
+import { jiraKeyFor } from "@/lib/jira-project";
 import type { Action, Person, Plan, TicketDetails } from "@/lib/plan";
 import { MissingIssueTypeError, type JiraClient } from "@/lib/jira";
 import { recordIsaWrite } from "@/lib/jira-track";
@@ -138,7 +139,7 @@ async function runActions(
   const warnings: string[] = [];
   for (const row of rows) {
     try {
-      const result = await runAction(row.payload as Action, refToRequirement, senders);
+      const result = await runAction(row.payload as Action, refToRequirement, senders, projectId);
       if (Array.isArray(result.warnings)) warnings.push(...(result.warnings as string[]));
       await db
         .update(schema.actions)
@@ -187,7 +188,7 @@ async function ensureProject(projectId: string | null, plan: Plan, eventIds: str
         name: plan.projectName ?? "New project",
         summary: plan.summary,
         people: mergePeople([], plan.people),
-        jiraProjectKey: process.env.JIRA_PROJECT_KEY ?? null,
+        jiraProjectKey: null,
       })
       .returning({ id: schema.projects.id });
     id = p.id;
@@ -287,11 +288,14 @@ async function runAction(
   action: Action,
   refs: Map<string, RequirementRow>,
   senders: Senders,
+  projectId: string | null = null,
 ): Promise<Record<string, unknown>> {
   switch (action.type) {
     case "jira_create": {
       const jira = need(senders.jira, "Jira");
+      const projectKey = (await jiraKeyFor(projectId)) ?? undefined;
       const issue = await jira.createIssue({
+        projectKey,
         summary: action.summary,
         description: withExtraDetails(action.description, action.details),
         ...(await jiraTypeFor(action)),
@@ -308,7 +312,7 @@ async function runAction(
         refs.set(row.id, row);
       }
       await recordIsaWrite(issue.key, req?.projectId ?? null);
-      const warnings = action.details ? await applyDetails(jira, issue.key, action.details) : [];
+      const warnings = action.details ? await applyDetails(jira, issue.key, action.details, projectKey) : [];
       return warnings.length ? { ...issue, warnings } : issue;
     }
     case "jira_update": {
@@ -376,7 +380,7 @@ export function withExtraDetails(description: string, details: TicketDetails | n
  * Set the confirmed sprint, story points and links on a ticket just created. The ticket exists
  * either way, so a detail Jira refuses becomes a note for the owner instead of a failed step.
  */
-async function applyDetails(jira: JiraClient, key: string, d: TicketDetails): Promise<string[]> {
+async function applyDetails(jira: JiraClient, key: string, d: TicketDetails, jiraKey?: string): Promise<string[]> {
   const warnings: string[] = [];
   const attempt = async (what: string, fn: () => Promise<unknown>) => {
     try {
@@ -388,7 +392,7 @@ async function applyDetails(jira: JiraClient, key: string, d: TicketDetails): Pr
   };
   if (d.sprint?.trim()) {
     await attempt(`sprint "${d.sprint}"`, async () => {
-      const sprint = (await jira.openSprints()).find((s) => s.name.trim().toLowerCase() === d.sprint!.trim().toLowerCase());
+      const sprint = (await jira.openSprints(jiraKey)).find((s) => s.name.trim().toLowerCase() === d.sprint!.trim().toLowerCase());
       if (!sprint) throw new Error("no open sprint has that name");
       await jira.moveToSprint(key, sprint.id);
     });

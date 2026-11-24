@@ -17,6 +17,7 @@ import { addDuty, directory, personLine, updatePerson, upsertPerson, type Direct
 import { claudeStructured } from "@/lib/brain/llm";
 import { decisionList, decisionTrail, trailText, versionLine, type DecisionRow } from "@/lib/trail";
 import { versionAt } from "@/lib/versions";
+import { defaultJiraKey, jiraProjectChoices, setJiraKey } from "@/lib/jira-project";
 import { confluenceConfigured, importPage, searchPages } from "@/lib/confluence";
 import { drawDiagram } from "@/lib/brain/diagram";
 
@@ -388,6 +389,23 @@ export function chatTools(llm: StructuredLLM, jira: JiraReader | null = null, se
         }
         if (!rows.length) return "Nobody in the directory matches. Suggest the owner adds who they know, or search the items.";
         return rows.slice(0, 40).map((r) => `- [${r.id}] ${personLine(r)}`).join("\n");
+      },
+    }),
+    tool({
+      name: "set_jira_project",
+      description:
+        "Choose which Jira project an ISA project creates new tickets, epics and sprints in, when the owner asks (e.g. 'Checkout tickets go to CHK'). Pass an empty key to go back to the default. This changes ISA's setting only, nothing in Jira. Without a key, lists the Jira projects the owner can see.",
+      inputSchema: z.object({ projectId: id.nullable(), key: z.string().nullable().describe("A Jira project key like CHK, \"\" for the default, or null to list them") }),
+      run: async ({ projectId, key }) => {
+        if (key === null || !projectId) {
+          const list = await jiraProjectChoices();
+          return list.length ? `Jira projects: ${list.map((p) => `${p.key} (${p.name})`).join(", ")}` : "Jira is not connected, or no projects are visible.";
+        }
+        const known = await jiraProjectChoices();
+        const k = key.trim().toUpperCase();
+        if (k && known.length && !known.some((p) => p.key === k)) return `No Jira project ${k} is visible to ISA. Visible: ${known.map((p) => p.key).join(", ")}.`;
+        const r = await setJiraKey(projectId, k);
+        return r.ok ? `Saved: new tickets for this project go to ${r.key ?? `the default (${defaultJiraKey() ?? "not set"})`}.` : r.error;
       },
     }),
     tool({

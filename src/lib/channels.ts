@@ -6,6 +6,7 @@ import { missingTypeQuestions, type MissingTypeQuestion } from "@/lib/queries";
 import type { Plan } from "@/lib/plan";
 import { getSettings, type Settings } from "@/lib/settings";
 import { openSprintNames } from "@/lib/jira-research";
+import { jiraKeyFor } from "@/lib/jira-project";
 
 export type Channel = { id: string | null; name: string; count: number; done: boolean };
 
@@ -91,7 +92,7 @@ export async function notifications(channelId: string | null): Promise<Notificat
     : [];
   const asks = await getSettings();
   const creates = rows.some((r) => r.plan.actions.some((a) => a.type === "jira_create" && a.kind !== "epic"));
-  const sprints = asks.askSprint && creates ? await openSprintNames() : [];
+  const sprints = asks.askSprint && creates ? await openSprintNames(await jiraKeyFor(channelId)) : [];
   const existingEpics = epics
     .filter((t) => /^(epic|[eé]pico|[eé]pica|epique)$/i.test(t.issueType ?? ""))
     .map((t) => ({ key: t.key, label: `${t.key} ${t.summary}` }));

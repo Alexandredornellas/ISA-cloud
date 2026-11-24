@@ -38,6 +38,7 @@ export async function projectBlock(projectId: string): Promise<string> {
     `Name: ${p.name}`,
     `Summary: ${p.summary || "(none)"}`,
     `People who move it forward: ${team.length ? team.map(personLine).join("; ") : p.people.length ? p.people.map(personText).join("; ") : "(none recorded)"}`,
+    `Jira project for new tickets and sprints: ${p.jiraProjectKey || process.env.JIRA_PROJECT_KEY || "(not set)"}`,
     p.slackChannelId ? `Slack channel: ${p.slackChannelId}` : null,
     rules.length ? `Rules from the user:\n${rules.map((r) => `- ${r.text}`).join("\n")}` : null,
     "Requirements:",
