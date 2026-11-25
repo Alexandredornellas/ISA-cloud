@@ -82,14 +82,24 @@ export async function processEvent(eventId: string, llm: StructuredLLM): Promise
 
     const proposalIds: string[] = [];
     let unsure = false;
+    // One project's draft failing must not stop the item's other projects: keep going, report at the end.
+    const failures: string[] = [];
+    const attempt = async (what: string, step: () => Promise<string | null>) => {
+      try {
+        const id = await step();
+        if (id) proposalIds.push(id);
+      } catch (err) {
+        log.error("draft failed", err, { ...ctx, step: what });
+        failures.push(err instanceof Error ? err.message : String(err));
+      }
+    };
 
     for (const match of sort.matches) {
       if (match.confidence === "high") {
         await linkEvent(event.id, match.projectId, match.relation, match.note);
         if (match.relation !== "context") {
           const others = sort.matches.filter((m) => m.projectId !== match.projectId);
-          const id = await proposeUpdate(match.projectId, [event], llm, terms, focusText(match.note, others.map((m) => m.note)));
-          if (id) proposalIds.push(id);
+          await attempt("update", () => proposeUpdate(match.projectId, [event], llm, terms, focusText(match.note, others.map((m) => m.note))));
         }
       } else if (!unsure) {
         // One question per item: the card offers every project, with ISA's best guess first.
@@ -101,7 +111,12 @@ export async function processEvent(eventId: string, llm: StructuredLLM): Promise
     }
 
     if (sort.newProject) {
-      proposalIds.push(await proposeNewProject(event, sort.newProject.name, llm, terms));
+      const name = sort.newProject.name;
+      await attempt("new_project", () => proposeNewProject(event, name, llm, terms));
+    }
+    if (failures.length) {
+      // Filed and memory saved; the failed drafts can be retried from Intake.
+      throw new Error(`${failures.length} draft(s) failed: ${failures[0]}`);
     }
 
     const status = sort.ignore && proposalIds.length === 0 && sort.matches.length === 0 ? "ignored" : unsure ? "unsure" : "sorted";

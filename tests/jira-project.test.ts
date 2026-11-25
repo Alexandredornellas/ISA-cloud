@@ -82,9 +82,35 @@ describe("suggesting a new Jira project", () => {
   };
 
   it("keeps a valid suggestion from a draft and drops an empty one", () => {
-    const draft = { ...waiting, newJiraProject: { key: " nfs8 ", name: "", template: "scrum" as const, reason: "r" }, actions: [] };
+    const draft = { ...waiting, projectName: "", people: [], requirementChanges: [], newJiraProject: { key: " nfs8 ", name: "", template: "scrum" as const, reason: "r" }, actions: [] };
     expect(fromDraft(draft).newJiraProject).toEqual({ key: "NFS8", name: "NFS8", template: "scrum", reason: "r" });
     expect(fromDraft({ ...draft, newJiraProject: { key: "", name: "", template: "scrum", reason: "" } }).newJiraProject).toBeNull();
+  });
+
+  it("turns the draft's empty strings back into nulls", () => {
+    const out = fromDraft({
+      summary: "s",
+      openQuestions: [],
+      projectName: "",
+      people: [{ name: "Bruno", email: "", slackUserId: "U1", role: "" }],
+      requirementChanges: [{ ref: "R1", op: "create", title: "t", description: "d", status: "proposed", approvedBy: "", reason: "r" }],
+      newJiraProject: { key: "", name: "", template: "scrum", reason: "" },
+      actions: [
+        { type: "jira_create", requirementRef: "R1", summary: "S", description: "d", kind: "story", epicRef: "", jiraProject: "chk" },
+        { type: "jira_update", requirementRef: "R1", issueKey: "CHK-1", summary: "", description: "new" },
+        { type: "slack_message", channel: "C1", recipientLabel: "#x", threadTs: "", text: "hi" },
+        { type: "email", to: ["a@b.c"], subject: "s", body: "b", threadId: "" },
+      ],
+    });
+    expect(out.projectName).toBeNull();
+    expect(out.people[0]).toEqual({ name: "Bruno", email: null, slackUserId: "U1", role: null });
+    expect(out.requirementChanges[0].approvedBy).toBeNull();
+    expect(out.actions).toMatchObject([
+      { type: "jira_create", epicRef: null, jiraProject: "CHK" },
+      { type: "jira_update", issueKey: "CHK-1", summary: null, description: "new" },
+      { type: "slack_message", threadTs: null },
+      { type: "email", threadId: null },
+    ]);
   });
 
   it("moves only the waiting tickets once the owner gives the key", () => {
