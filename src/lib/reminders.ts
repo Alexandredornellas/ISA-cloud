@@ -2,7 +2,7 @@
 // up from meetings, email and Slack, or the owner adds them. They never contact anyone.
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
-import type { Commitment } from "@/lib/plan";
+import type { Commitment, Settle } from "@/lib/plan";
 
 export type Reminder = typeof schema.reminders.$inferSelect;
 
@@ -56,8 +56,48 @@ export async function addReminder(input: { text: string; person?: string | null;
 export async function setReminderStatus(id: string, status: "open" | "done" | "dismissed") {
   await db
     .update(schema.reminders)
-    .set({ status, doneAt: status === "open" ? null : new Date(), updatedAt: new Date() })
+    .set({ status, doneAt: status === "open" ? null : new Date(), closeSuggestion: null, updatedAt: new Date() })
     .where(eq(schema.reminders.id, id));
+}
+
+/**
+ * Open reminders for Claude to check a new item against, snoozed ones too, without the ones
+ * that came from this same item. Ids are in brackets so Claude can name the one it settles.
+ */
+export async function remindersToSettle(eventId: string): Promise<string> {
+  const rows = (await withContext(await db.select().from(schema.reminders).where(eq(schema.reminders.status, "open")).orderBy(asc(schema.reminders.createdAt)))).filter(
+    (r) => r.eventId !== eventId,
+  );
+  return rows.length ? `Open to-dos and waiting-ons:\n${remindersText(rows)}\n\n` : "";
+}
+
+/**
+ * Mark open reminders a new item seems to settle ("no need for that meeting anymore"). Nothing
+ * is closed: the Agenda asks the owner to close each one or keep it. Returns how many were marked.
+ */
+export async function suggestClosing(eventId: string, settles: Settle[]): Promise<number> {
+  const ids = [...new Set(settles.map((x) => x.reminderId).filter((id) => /^[0-9a-f-]{36}$/i.test(id)))];
+  if (!ids.length) return 0;
+  const open = await db
+    .select({ id: schema.reminders.id, eventId: schema.reminders.eventId })
+    .from(schema.reminders)
+    .where(and(inArray(schema.reminders.id, ids), eq(schema.reminders.status, "open")));
+  let marked = 0;
+  for (const r of open) {
+    if (r.eventId === eventId) continue; // an item does not settle its own to-do
+    const x = settles.find((s) => s.reminderId === r.id)!;
+    await db
+      .update(schema.reminders)
+      .set({ closeSuggestion: { ...x, reason: x.reason.slice(0, 300), quote: x.quote.slice(0, 500), eventId, at: new Date().toISOString() }, updatedAt: new Date() })
+      .where(eq(schema.reminders.id, r.id));
+    marked++;
+  }
+  return marked;
+}
+
+/** The owner keeps a reminder ISA thought was settled. */
+export async function keepReminder(id: string) {
+  await db.update(schema.reminders).set({ closeSuggestion: null, updatedAt: new Date() }).where(eq(schema.reminders.id, id));
 }
 
 export type ReminderRow = Reminder & { projectName: string | null; source: { source: string; title: string; url: string | null; at: Date } | null };

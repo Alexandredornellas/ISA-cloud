@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { addReminder, setReminderStatus, snoozeReminder } from "@/lib/reminders";
+import { addReminder, keepReminder, setReminderStatus, snoozeReminder } from "@/lib/reminders";
 
 export async function reminderStatus(form: FormData) {
   const status = String(form.get("status"));
@@ -27,5 +27,11 @@ export async function newReminder(form: FormData) {
 export async function snooze(form: FormData) {
   const days = Math.min(30, Math.max(0, Math.round(Number(form.get("days")) || 0)));
   await snoozeReminder(String(form.get("id")), days || null);
+  revalidatePath("/", "layout");
+}
+
+/** Keep a reminder ISA thought was settled: the suggestion goes away, the reminder stays open. */
+export async function keepOpen(form: FormData) {
+  await keepReminder(String(form.get("id")));
   revalidatePath("/", "layout");
 }

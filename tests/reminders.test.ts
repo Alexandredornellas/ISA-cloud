@@ -5,7 +5,7 @@ import postgres from "postgres";
 import { db, schema } from "@/db";
 import { processEvent } from "@/lib/brain/pipeline";
 import type { StructuredLLM } from "@/lib/brain/llm";
-import { addReminder, bucketOf, dueCount, dueFrom, openReminders, remindersText, setReminderStatus } from "@/lib/reminders";
+import { addReminder, bucketOf, dueCount, dueFrom, keepReminder, openReminders, remindersText, setReminderStatus } from "@/lib/reminders";
 
 beforeAll(async () => {
   const sql = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} });
@@ -49,6 +49,60 @@ describe("reminders from items", () => {
     const open = all.filter((r) => r.direction === "mine");
     expect(open[0]).toMatchObject({ text: "Send the MFA mockups", person: "Ana", dueText: "by Monday", projectName: "MFA login", source: { title: "Weekly" } });
     expect(await openReminders(project.id)).toHaveLength(1);
+  });
+});
+
+describe("items that settle a reminder", () => {
+  const sortWith = (settles: { reminderId: string; outcome: "done" | "cancelled"; reason: string; quote: string }[]): StructuredLLM =>
+    (async () => ({ matches: [], newProject: null, ignore: true, searchTerms: [], reason: "", commitments: [], peopleNotes: [], settles })) as never;
+  const slack = async (content: string) =>
+    (await db.insert(schema.events).values({ source: "slack", externalId: `C1:${crypto.randomUUID()}`, title: "#game", occurredAt: new Date(), content }).returning())[0];
+
+  it("shows Claude the open reminders and only suggests closing, never closes", async () => {
+    const r = await addReminder({ text: "Schedule a meeting to discuss coin economy", due: "2026-11-26" });
+    const e = await slack("Don't need to schedule a meeting to discuss coin economy");
+    let input = "";
+    const llm: StructuredLLM = async (req) => {
+      input = req.input;
+      return sortWith([{ reminderId: r.id, outcome: "cancelled", reason: "Alexandre says the meeting is no longer needed", quote: "don't need to schedule a meeting" }])(req);
+    };
+    await processEvent(e.id, llm);
+    expect(input).toContain(`[${r.id}] Schedule a meeting to discuss coin economy`);
+    const [row] = await openReminders();
+    expect(row.status).toBe("open");
+    expect(row.closeSuggestion).toMatchObject({ outcome: "cancelled", reason: "Alexandre says the meeting is no longer needed", eventId: e.id });
+
+    await setReminderStatus(r.id, "dismissed");
+    expect(await openReminders()).toHaveLength(0);
+    const [closed] = await db.select().from(schema.reminders);
+    expect(closed.closeSuggestion).toBeNull();
+  });
+
+  it("drops the question when the owner keeps it", async () => {
+    const r = await addReminder({ text: "Send the mockups" });
+    await processEvent((await slack("sent!")).id, sortWith([{ reminderId: r.id, outcome: "done", reason: "Sent", quote: "sent!" }]));
+    await keepReminder(r.id);
+    const [row] = await openReminders();
+    expect(row.status).toBe("open");
+    expect(row.closeSuggestion).toBeNull();
+  });
+
+  it("ignores unknown ids, closed reminders and the item's own to-do", async () => {
+    const done = await addReminder({ text: "Old thing" });
+    await setReminderStatus(done.id, "done");
+    const e = await slack("I'll send the deck, oh never mind");
+    const [own] = await db.insert(schema.reminders).values({ text: "Send the deck", eventId: e.id }).returning();
+    await processEvent(
+      e.id,
+      sortWith([
+        { reminderId: "not-an-id", outcome: "done", reason: "", quote: "" },
+        { reminderId: crypto.randomUUID(), outcome: "done", reason: "", quote: "" },
+        { reminderId: done.id, outcome: "done", reason: "", quote: "" },
+        { reminderId: own.id, outcome: "cancelled", reason: "", quote: "" },
+      ]),
+    );
+    const rows = await db.select().from(schema.reminders);
+    expect(rows.every((x) => x.closeSuggestion === null)).toBe(true);
   });
 });
 

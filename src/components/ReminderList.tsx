@@ -2,7 +2,7 @@ import Link from "next/link";
 import { agendaDays, meetingTime, type AgendaMeeting } from "@/lib/agenda";
 import { dayKey, type ReminderRow } from "@/lib/reminders";
 import { sourceOf } from "@/lib/sources";
-import { reminderStatus, snooze } from "@/app/(app)/reminders/actions";
+import { keepOpen, reminderStatus, snooze } from "@/app/(app)/reminders/actions";
 import type { Brief } from "@/lib/brief";
 import { BeforeAfter } from "@/components/Chip";
 
@@ -62,64 +62,67 @@ export function ReminderList({
                     className="block h-[18px] w-[18px] rounded-full border-2 border-line hover:border-ok hover:bg-ok/15"
                   />
                 </form>
-                <details className="group min-w-0 flex-1 text-sm">
-                  <summary className="flex cursor-pointer list-none items-center gap-2.5">
-                    <span className="line-clamp-2 min-w-0 flex-1 font-medium group-open:line-clamp-none sm:line-clamp-1">{r.text}</span>
-                    {r.person ? (
-                      <span
-                        className={`max-w-[40%] flex-none truncate rounded-full px-2 py-px text-xs ${r.direction === "theirs" ? "bg-accent-soft text-accent" : "border border-line text-ink"}`}
-                        title={r.direction === "theirs" ? `Waiting on ${r.person}` : `You owe this to ${r.person}`}
-                      >
-                        <span aria-hidden="true">{r.direction === "theirs" ? "← " : "→ "}</span>
-                        <span className="sr-only">{r.direction === "theirs" ? "waiting on " : "for "}</span>
-                        {r.person}
-                      </span>
-                    ) : r.direction === "theirs" ? (
-                      <span className="flex-none rounded-full bg-accent-soft px-2 py-px text-xs text-accent">← waiting</span>
-                    ) : null}
-                    {showProject && r.projectName ? <span className="hidden flex-none text-xs text-muted lg:inline">{r.projectName}</span> : null}
-                    {r.due ? (
-                      <span className={`w-14 flex-none text-right text-xs tabular-nums ${day.tone === "danger" ? "font-medium text-danger" : day.tone === "warn" ? "font-medium text-warn" : "text-muted"}`}>
-                        {day.tone === "warn" ? "Today" : shortDay(r.due)}
-                      </span>
-                    ) : null}
-                  </summary>
-                  <div className="mt-1.5 space-y-1 pb-1 text-xs text-muted">
-                    <p>
-                      {r.direction === "theirs" ? `Waiting on ${r.person ?? "someone"}` : r.person ? `You owe this to ${r.person}` : "Yours to do"}
-                      {r.due ? ` · due ${longDay(r.due)}${r.dueText ? ` (“${r.dueText}”)` : ""}` : ""}
-                      {r.projectName ? ` · ${r.projectName}` : ""}
-                    </p>
-                    {r.quote ? <p className="border-l-2 border-line pl-2 italic">“{r.quote}”</p> : null}
-                    <p className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                      {r.source ? (
-                        r.source.url ? (
-                          <a href={r.source.url} target="_blank" rel="noreferrer" className="text-accent hover:underline">
-                            From {sourceOf(r.source.source).label}: {r.source.title}
-                          </a>
+                <div className="min-w-0 flex-1">
+                  <details className="group text-sm">
+                    <summary className="flex cursor-pointer list-none items-center gap-2.5">
+                      <span className="line-clamp-2 min-w-0 flex-1 font-medium group-open:line-clamp-none sm:line-clamp-1">{r.text}</span>
+                      {r.person ? (
+                        <span
+                          className={`max-w-[40%] flex-none truncate rounded-full px-2 py-px text-xs ${r.direction === "theirs" ? "bg-accent-soft text-accent" : "border border-line text-ink"}`}
+                          title={r.direction === "theirs" ? `Waiting on ${r.person}` : `You owe this to ${r.person}`}
+                        >
+                          <span aria-hidden="true">{r.direction === "theirs" ? "← " : "→ "}</span>
+                          <span className="sr-only">{r.direction === "theirs" ? "waiting on " : "for "}</span>
+                          {r.person}
+                        </span>
+                      ) : r.direction === "theirs" ? (
+                        <span className="flex-none rounded-full bg-accent-soft px-2 py-px text-xs text-accent">← waiting</span>
+                      ) : null}
+                      {showProject && r.projectName ? <span className="hidden flex-none text-xs text-muted lg:inline">{r.projectName}</span> : null}
+                      {r.due ? (
+                        <span className={`w-14 flex-none text-right text-xs tabular-nums ${day.tone === "danger" ? "font-medium text-danger" : day.tone === "warn" ? "font-medium text-warn" : "text-muted"}`}>
+                          {day.tone === "warn" ? "Today" : shortDay(r.due)}
+                        </span>
+                      ) : null}
+                    </summary>
+                    <div className="mt-1.5 space-y-1 pb-1 text-xs text-muted">
+                      <p>
+                        {r.direction === "theirs" ? `Waiting on ${r.person ?? "someone"}` : r.person ? `You owe this to ${r.person}` : "Yours to do"}
+                        {r.due ? ` · due ${longDay(r.due)}${r.dueText ? ` (“${r.dueText}”)` : ""}` : ""}
+                        {r.projectName ? ` · ${r.projectName}` : ""}
+                      </p>
+                      {r.quote ? <p className="border-l-2 border-line pl-2 italic">“{r.quote}”</p> : null}
+                      <p className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                        {r.source ? (
+                          r.source.url ? (
+                            <a href={r.source.url} target="_blank" rel="noreferrer" className="text-accent hover:underline">
+                              From {sourceOf(r.source.source).label}: {r.source.title}
+                            </a>
+                          ) : (
+                            <span>
+                              From {sourceOf(r.source.source).label}: {r.source.title}
+                            </span>
+                          )
                         ) : (
-                          <span>
-                            From {sourceOf(r.source.source).label}: {r.source.title}
-                          </span>
-                        )
-                      ) : (
-                        <span>Added by you</span>
-                      )}
-                      <button form={`dismiss-${r.id}`} className="hover:text-ink hover:underline">
-                        Not needed
-                      </button>
-                      <span className="flex items-center gap-2">
-                        Snooze
-                        <button form={`snooze-${r.id}`} name="days" value="1" className="rounded border border-line px-1.5 hover:bg-hover hover:text-ink">
-                          until tomorrow
+                          <span>Added by you</span>
+                        )}
+                        <button form={`dismiss-${r.id}`} className="hover:text-ink hover:underline">
+                          Not needed
                         </button>
-                        <button form={`snooze-${r.id}`} name="days" value="7" className="rounded border border-line px-1.5 hover:bg-hover hover:text-ink">
-                          a week
-                        </button>
-                      </span>
-                    </p>
-                  </div>
-                </details>
+                        <span className="flex items-center gap-2">
+                          Snooze
+                          <button form={`snooze-${r.id}`} name="days" value="1" className="rounded border border-line px-1.5 hover:bg-hover hover:text-ink">
+                            until tomorrow
+                          </button>
+                          <button form={`snooze-${r.id}`} name="days" value="7" className="rounded border border-line px-1.5 hover:bg-hover hover:text-ink">
+                            a week
+                          </button>
+                        </span>
+                      </p>
+                    </div>
+                  </details>
+                  {r.closeSuggestion ? <SettledNote id={r.id} s={r.closeSuggestion} /> : null}
+                </div>
                 <form id={`dismiss-${r.id}`} action={reminderStatus} className="hidden">
                   <input type="hidden" name="id" value={r.id} />
                   <input type="hidden" name="status" value="dismissed" />
@@ -132,6 +135,32 @@ export function ReminderList({
           </ul>
         </section>
       ))}
+    </div>
+  );
+}
+
+/**
+ * A later item seems to settle this reminder. ISA asks before closing it: "Close it" marks it
+ * done (or not needed), "Keep it" leaves it open and drops the question.
+ */
+function SettledNote({ id, s }: { id: string; s: NonNullable<ReminderRow["closeSuggestion"]> }) {
+  return (
+    <div className="mt-1.5 rounded-lg bg-accent-soft px-2.5 py-1.5 text-xs">
+      <p className="text-ink">
+        <span className="font-medium">{s.outcome === "done" ? "This looks done." : "This looks cancelled."}</span> {s.reason}
+      </p>
+      {s.quote ? <p className="mt-0.5 italic text-muted">“{s.quote}”</p> : null}
+      <div className="mt-1 flex gap-2">
+        <form action={reminderStatus}>
+          <input type="hidden" name="id" value={id} />
+          <input type="hidden" name="status" value={s.outcome === "done" ? "done" : "dismissed"} />
+          <button className="rounded bg-accent px-2 py-0.5 font-medium text-white hover:opacity-90">Close it</button>
+        </form>
+        <form action={keepOpen}>
+          <input type="hidden" name="id" value={id} />
+          <button className="rounded border border-line px-2 py-0.5 text-ink hover:bg-hover">Keep it</button>
+        </form>
+      </div>
     </div>
   );
 }
