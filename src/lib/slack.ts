@@ -13,6 +13,8 @@ export type SlackMessage = {
   thread_ts?: string;
   latest_reply?: string;
   reply_count?: number;
+  /** Set when the author edited the message; the text is the edited one. */
+  edited?: { user?: string; ts: string };
 };
 
 export type SlackConversation = {

@@ -72,6 +72,24 @@ describe("pollSlack", () => {
     expect(await pollSlack(slack, NOW + 30_000)).toBe(1);
   });
 
+  it("picks up a message its author edited after ISA read it", async () => {
+    const msg: SlackMessage = { ts: ts(300), user: "U2", text: "Stacking is max 2 days" };
+    const slack = fakeSlack([{ id: "C1", name: "rewards" }], { C1: [msg] });
+    expect(await pollSlack(slack, NOW)).toBe(1);
+
+    // Ana edits it 2 minutes later; ISA sees it once the edit settles, and only once.
+    msg.text = "Stacking is max 1 day";
+    msg.edited = { user: "U2", ts: ts(-120) };
+    const later = NOW + 150_000;
+    expect(await pollSlack(slack, later)).toBe(1);
+    expect(await pollSlack(slack, later + 30_000)).toBe(0);
+
+    const edited = (await db.select().from(schema.events)).find((e) => e.externalId.includes(":edited:"))!;
+    expect(edited.title).toContain("(edited)");
+    expect(edited.content).toContain("Edited by its author");
+    expect(edited.content).toContain("Ana: Stacking is max 1 day");
+  });
+
   it("puts earlier thread messages in context and DMs the person back", async () => {
     const root = ts(3000);
     const slack = fakeSlack(

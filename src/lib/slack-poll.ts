@@ -49,6 +49,10 @@ export async function pollSlack(slack: Reader, now = Date.now()): Promise<number
       cursors[conv.id] ??= (nowSec - FIRST_LOOK_SECONDS).toFixed(6);
       const cursor = tsNum(cursors[conv.id]);
       const isNew = (m: SlackMessage) => wanted(m) && tsNum(m.ts) > cursor && tsNum(m.ts) <= settle;
+      // A message ISA already read that its author edited since: the new text can change a requirement.
+      const isEdit = (m: SlackMessage) =>
+        wanted(m) && !!m.edited && tsNum(m.ts) <= cursor && tsNum(m.edited.ts) > cursor && tsNum(m.edited.ts) <= settle;
+      const edits: { root: string; m: SlackMessage; context: SlackMessage[] }[] = [];
 
       // root ts -> { thread context, new messages }
       const groups = new Map<string, { context: SlackMessage[]; fresh: SlackMessage[] }>();
@@ -69,11 +73,13 @@ export async function pollSlack(slack: Reader, now = Date.now()): Promise<number
           .slice(-RECENT_MESSAGES);
       for (const m of history) {
         if (isNew(m)) add(m.thread_ts ?? m.ts, m, m.thread_ts ? [] : recentBefore(m.ts));
+        if (isEdit(m)) edits.push({ root: m.thread_ts ?? m.ts, m, context: m.thread_ts ? [] : recentBefore(m.ts) });
         if (m.reply_count && m.latest_reply && tsNum(m.latest_reply) > cursor) {
           const thread = await slack.replies(conv.id, m.ts);
           const fresh = thread.slice(1).filter(isNew);
           const context = thread.filter((x) => wanted(x) && tsNum(x.ts) <= cursor);
           for (const r of fresh) add(m.ts, r, context);
+          for (const r of thread.slice(1).filter(isEdit)) edits.push({ root: m.ts, m: r, context: thread.filter((x) => wanted(x) && tsNum(x.ts) < tsNum(r.ts)) });
         }
       }
 
@@ -85,6 +91,12 @@ export async function pollSlack(slack: Reader, now = Date.now()): Promise<number
         const inserted = await storeGroup(slack, conv, root, g.context, g.fresh);
         if (inserted) stored += 1;
       }
+      for (const e of edits) {
+        maxTs = Math.max(maxTs, tsNum(e.m.edited!.ts));
+        const inserted = await storeGroup(slack, conv, e.root, e.context, [e.m], e.m.edited!.ts);
+        if (inserted) stored += 1;
+      }
+      if (edits.length) log.info("slack edits found", { channel: conv.id, edits: edits.length });
       cursors[conv.id] = maxTs.toFixed(6);
     } catch (err) {
       log.error("slack poll failed", err, { channel: conv.id });
@@ -104,6 +116,8 @@ async function storeGroup(
   root: string,
   context: SlackMessage[],
   fresh: SlackMessage[],
+  /** When set, fresh holds one message its author edited at this ts. */
+  editedTs?: string,
 ): Promise<boolean> {
   const people = new Map<string, Person>();
   const nameOf = async (id: string) => {
@@ -127,7 +141,11 @@ async function storeGroup(
   if (context.length) {
     parts.push(root === fresh[0].ts && !fresh[0].thread_ts ? "Earlier in this conversation:" : "Earlier in this thread:");
     for (const m of context.slice(0, 1).concat(context.slice(1).slice(-9))) parts.push((await line(m)).slice(0, 800));
-    parts.push("New messages:");
+    parts.push(editedTs ? "Edited message:" : "New messages:");
+  }
+  if (editedTs) {
+    const when = new Date(tsNum(fresh[0].ts) * 1000).toISOString();
+    parts.push(`(Edited by its author. This replaces what they wrote at ${when}; treat the new text as the current one.)`);
   }
   for (const m of fresh) parts.push(await line(m));
 
@@ -146,11 +164,11 @@ async function storeGroup(
     .insert(schema.events)
     .values({
       source: "slack",
-      externalId: `${conv.id}:${root}:${last.ts}`,
-      title: `${where}: ${first.length > 60 ? `${first.slice(0, 57)}...` : first}`,
+      externalId: editedTs ? `${conv.id}:${root}:${last.ts}:edited:${editedTs}` : `${conv.id}:${root}:${last.ts}`,
+      title: `${where}: ${editedTs ? "(edited) " : ""}${first.length > 60 ? `${first.slice(0, 57)}...` : first}`,
       author: fresh[0].user ? await nameOf(fresh[0].user) : null,
       participants: [...people.values()],
-      occurredAt: new Date(tsNum(last.ts) * 1000),
+      occurredAt: new Date(tsNum(editedTs ?? last.ts) * 1000),
       content: parts.join("\n"),
       replyTo,
     })
