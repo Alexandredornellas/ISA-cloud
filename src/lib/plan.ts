@@ -128,22 +128,46 @@ const DraftTicketDetails = z.object({
   extra: z.array(z.object({ name: z.string(), value: z.string() })).describe("The owner's own fields, by name"),
 });
 
+// Every nullable field below is a plain string in the draft, "" meaning none; fromDraft turns "" back into null.
+const EMPTY = '"" when unknown or none';
+const DraftPerson = PersonSchema.extend({ email: z.string().describe(EMPTY), slackUserId: z.string().describe(EMPTY), role: z.string().describe(EMPTY) });
+const DraftRequirementChange = RequirementChangeSchema.extend({ approvedBy: z.string().describe(EMPTY) });
+const DraftCreateNoNull = DraftCreate.extend({
+  epicRef: z
+    .string()
+    .describe('The epic this ticket goes under: an existing epic\'s Jira key (e.g. SCRUM-1), or the requirementRef of an epic created earlier in this plan. "" for an epic, or when no epic fits.'),
+});
+const DraftUpdate = JiraUpdate.extend({
+  issueKey: z.string().describe('"" when the issue is created earlier in this plan'),
+  summary: z.string().describe('"" to keep the current summary'),
+  description: z.string().describe('"" to keep the current description'),
+});
+const DraftComment = JiraComment.extend({ issueKey: z.string().describe('"" when the issue is created earlier in this plan') });
+const DraftClose = JiraClose.extend({ issueKey: z.string().describe('"" when the issue is created earlier in this plan') });
+const DraftSlack = SlackMessage.extend({ threadTs: z.string().describe('"" for a new message, not a thread reply') });
+const DraftEmail = Email.extend({ threadId: z.string().describe('"" for a new email thread') });
+
 const draftSchemas = (withDetails: boolean) =>
   PlanSchema.extend({
+    projectName: z.string().describe('Only for a new project; otherwise ""'),
+    people: z.array(DraftPerson),
+    requirementChanges: z.array(DraftRequirementChange),
     newJiraProject: NewJiraProjectSchema.describe(
       'Only when none of the Jira projects you can create tickets in fits this work (a different product, client or team): the project to suggest creating. Otherwise every field empty ("" and template "scrum").',
     ),
     actions: z.array(
       z.union([
-        withDetails ? DraftCreate.extend({ details: DraftTicketDetails.describe("For epics, leave every field empty") }) : DraftCreate,
-        JiraUpdate,
-        JiraComment,
-        JiraClose,
-        SlackMessage,
-        Email,
+        withDetails ? DraftCreateNoNull.extend({ details: DraftTicketDetails.describe("For epics, leave every field empty") }) : DraftCreateNoNull,
+        DraftUpdate,
+        DraftComment,
+        DraftClose,
+        DraftSlack,
+        DraftEmail,
       ]),
     ),
   });
+
+const orNull = (s: string | null | undefined) => (s && s.trim() ? s : null);
 
 export const DraftSchema = draftSchemas(false);
 export const DraftWithDetailsSchema = draftSchemas(true);
@@ -154,8 +178,12 @@ export function fromDraft(draft: z.infer<typeof DraftWithDetailsSchema> | z.infe
   const key = suggested?.key.trim().toUpperCase() ?? "";
   return {
     ...draft,
+    projectName: orNull(draft.projectName),
+    people: draft.people.map((p) => ({ ...p, email: orNull(p.email), slackUserId: orNull(p.slackUserId), role: orNull(p.role) })),
+    requirementChanges: draft.requirementChanges.map((c) => ({ ...c, approvedBy: orNull(c.approvedBy) })),
     newJiraProject: /^[A-Z][A-Z0-9_]{1,9}$/.test(key) ? { ...suggested, key, name: suggested.name.trim() || key } : null,
-    actions: draft.actions.map((a): Action => {
+    actions: draft.actions.map((raw): Action => {
+      let a = nullsBack(raw);
       if (a.type === "jira_create") a = { ...a, jiraProject: (a.jiraProject ?? "").trim().toUpperCase() };
       if (a.type !== "jira_create" || !("details" in a) || !a.details) return a as Action;
       const d = a.details as z.infer<typeof DraftTicketDetails>;
@@ -166,6 +194,25 @@ export function fromDraft(draft: z.infer<typeof DraftWithDetailsSchema> | z.infe
       };
     }),
   };
+}
+
+type DraftAction = z.infer<typeof DraftWithDetailsSchema>["actions"][number] | z.infer<typeof DraftSchema>["actions"][number];
+
+/** A drafted action with "" turned back into null where the stored plan uses null. */
+function nullsBack(a: DraftAction): Action {
+  switch (a.type) {
+    case "jira_create":
+      return { ...a, epicRef: orNull(a.epicRef) } as Action;
+    case "jira_update":
+      return { ...a, issueKey: orNull(a.issueKey), summary: orNull(a.summary), description: orNull(a.description) };
+    case "jira_comment":
+    case "jira_close":
+      return { ...a, issueKey: orNull(a.issueKey) };
+    case "slack_message":
+      return { ...a, threadTs: orNull(a.threadTs) };
+    case "email":
+      return { ...a, threadId: orNull(a.threadId) };
+  }
 }
 
 export const SortMatchSchema = z.object({
