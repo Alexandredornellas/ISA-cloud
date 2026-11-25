@@ -15,6 +15,7 @@ import { savePersonNotes } from "@/lib/people";
 import { recordMemory } from "@/lib/executor";
 import { saveCardVersion } from "@/lib/card-versions";
 import { sourceOf } from "@/lib/sources";
+import { log } from "@/lib/log";
 
 /** Ask Claude for a draft plan, with ticket details only when the owner's settings ask for them. */
 async function draft(llm: StructuredLLM, req: { system: string; context: string; input: string; effort: "low" | "medium" | "high" }): Promise<Plan> {
@@ -60,6 +61,9 @@ export type ProcessOutcome =
 export async function processEvent(eventId: string, llm: StructuredLLM): Promise<ProcessOutcome> {
   const event = await db.query.events.findFirst({ where: eq(schema.events.id, eventId) });
   if (!event) throw new Error("Event not found");
+  const ctx = { eventId, source: event.source };
+  const started = Date.now();
+  log.info("event processing started", ctx);
 
   try {
     const { text: context, projectIds } = await projectsContext();
@@ -106,9 +110,19 @@ export async function processEvent(eventId: string, llm: StructuredLLM): Promise
       .set({ status, sortResult: sort, error: null, updatedAt: new Date() })
       .where(eq(schema.events.id, event.id));
 
+    log.info("event processed", {
+      ...ctx,
+      status,
+      matches: sort.matches.length,
+      proposals: proposalIds.length,
+      newProject: !!sort.newProject,
+      commitments: sort.commitments?.length ?? 0,
+      ms: Date.now() - started,
+    });
     if (status === "ignored") return { kind: "ignored" };
     return { kind: unsure ? "unsure" : "filed", proposalIds };
   } catch (err) {
+    log.error("event processing failed", err, { ...ctx, ms: Date.now() - started });
     const message = err instanceof Error ? err.message : String(err);
     await db
       .update(schema.events)

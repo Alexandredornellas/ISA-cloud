@@ -1,5 +1,6 @@
 // Recall.ai meeting-bot client. The bot joins Zoom, Google Meet or Teams under a visible
 // name, transcribes with speaker names, and ISA downloads the transcript when the call ends.
+import { log, pathOnly, traced } from "@/lib/log";
 
 export type RecallConfig = { apiKey: string; region: string };
 
@@ -53,6 +54,10 @@ export class RecallClient {
   ) {}
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    return traced("recall", `${method} ${pathOnly(path)}`, () => this.send<T>(method, path, body));
+  }
+
+  private async send<T>(method: string, path: string, body?: unknown): Promise<T> {
     const res = await this.fetchImpl(`https://${this.cfg.region}.recall.ai/api/v1${path}`, {
       method,
       headers: {
@@ -105,9 +110,14 @@ export class RecallClient {
   }
 
   async downloadTranscript(url: string): Promise<TranscriptSegment[]> {
-    const res = await this.fetchImpl(url);
-    if (!res.ok) throw new Error(`Transcript download failed (${res.status})`);
-    return (await res.json()) as TranscriptSegment[];
+    // The URL is signed: never log it.
+    return traced("recall", "GET transcript", async () => {
+      const res = await this.fetchImpl(url);
+      if (!res.ok) throw new Error(`Transcript download failed (${res.status})`);
+      const segments = (await res.json()) as TranscriptSegment[];
+      log.info("transcript downloaded", { segments: Array.isArray(segments) ? segments.length : 0 });
+      return segments;
+    });
   }
 }
 

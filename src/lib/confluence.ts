@@ -2,6 +2,7 @@
 // JIRA_API_TOKEN). ISA searches pages for answers and can add a page to its memory, where it is
 // sorted into projects like any meeting, email or Slack message. It never writes to Confluence.
 import { db, schema } from "@/db";
+import { pathOnly, traced } from "@/lib/log";
 
 type Config = { site: string; auth: string };
 
@@ -17,6 +18,10 @@ function config(): Config | null {
 export const confluenceConfigured = () => config() !== null;
 
 async function get<T>(path: string): Promise<T> {
+  return traced("confluence", `GET ${pathOnly(path)}`, () => getRaw<T>(path));
+}
+
+async function getRaw<T>(path: string): Promise<T> {
   const c = config();
   if (!c) throw new Error("Confluence uses the Jira sign-in: set JIRA_SITE, JIRA_EMAIL and JIRA_API_TOKEN");
   const res = await fetch(`https://${c.site}/wiki${path}`, { headers: { Authorization: c.auth, Accept: "application/json" } });

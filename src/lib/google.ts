@@ -1,6 +1,8 @@
 // Google OAuth plus the Gmail and Calendar calls ISA needs. Tokens live in the connections table.
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { traced } from "@/lib/log";
+
 
 export const GOOGLE_SCOPES = [
   "openid",
@@ -40,6 +42,10 @@ export function googleAuthUrl(cfg: GoogleConfig, state: string): string {
 type TokenResponse = { access_token: string; expires_in: number; refresh_token?: string; scope?: string; id_token?: string };
 
 async function tokenRequest(params: Record<string, string>, fetchImpl: typeof fetch): Promise<TokenResponse> {
+  return traced("google", `token ${params.grant_type}`, () => tokenCall(params, fetchImpl));
+}
+
+async function tokenCall(params: Record<string, string>, fetchImpl: typeof fetch): Promise<TokenResponse> {
   const res = await fetchImpl("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -128,6 +134,14 @@ export class GoogleClient {
   }
 
   async send<T>(method: string, url: string, body?: unknown): Promise<T> {
+    const path = new URL(url).pathname;
+    return traced("google", `${method} ${path}`, () => this.call<T>(method, url, body), {
+      // Gmail answers 404 for a history cursor that is too old; pollGmail starts again.
+      expected: (err) => err instanceof GoogleError && err.status === 404 && path.endsWith("/history"),
+    });
+  }
+
+  private async call<T>(method: string, url: string, body?: unknown): Promise<T> {
     const res = await this.fetchImpl(url, {
       method,
       headers: {

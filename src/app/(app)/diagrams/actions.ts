@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { claudeStructured } from "@/lib/brain/llm";
 import { DIAGRAM_KINDS, drawDiagram, type DiagramKind } from "@/lib/brain/diagram";
+import { log } from "@/lib/log";
 
 export async function newDiagram(form: FormData) {
   const [projectId, requirementId] = String(form.get("target") ?? "").split(":");
@@ -16,7 +17,7 @@ export async function newDiagram(form: FormData) {
     const d = await drawDiagram(claudeStructured, { projectId, requirementId: requirementId || null, kind, ask: String(form.get("ask") ?? "") });
     target = `/diagrams#d-${d.id}`;
   } catch (err) {
-    console.error("diagram failed", { error: err instanceof Error ? err.name : "unknown" });
+    log.error("diagram failed", err);
     target = `/diagrams?error=${encodeURIComponent(err instanceof Error ? err.message : "ISA could not draw it")}`;
   }
   revalidatePath("/diagrams");
