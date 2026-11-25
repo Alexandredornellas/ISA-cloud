@@ -45,7 +45,16 @@ const JiraCreateBase = z.object({
 });
 
 const JIRA_PROJECT_HELP =
-  'Key of the Jira project to create it in (e.g. CHK), chosen from what ISA knows: where the related tickets, the epic or this project\'s other tickets live. "" uses the project\'s default.';
+  'Key of the Jira project to create it in (e.g. CHK): the existing project whose scope fits the work, or the key in newJiraProject when none fits. "" uses the project\'s default.';
+
+/** A Jira project ISA suggests the owner creates, because none they have fits the work. ISA cannot create it. */
+export const NewJiraProjectSchema = z.object({
+  key: z.string().describe("Proposed key, 2 to 10 capital letters, not already used (e.g. NFS8)"),
+  name: z.string().describe("Proposed project name"),
+  template: z.enum(["scrum", "kanban"]).describe("scrum when the team will plan in sprints, kanban for a continuous flow"),
+  reason: z.string().describe("One sentence: why none of the existing Jira projects fits"),
+});
+export type NewJiraProject = z.infer<typeof NewJiraProjectSchema>;
 // Drafts always say where the ticket goes; plans saved before this have no jiraProject.
 const DraftCreate = JiraCreateBase.extend({ jiraProject: z.string().describe(JIRA_PROJECT_HELP) });
 const JiraCreate = JiraCreateBase.extend({ details: TicketDetailsSchema.nullable().optional(), jiraProject: z.string().optional() });
@@ -104,6 +113,8 @@ export const PlanSchema = z.object({
   requirementChanges: z.array(RequirementChangeSchema),
   actions: z.array(ActionSchema),
   openQuestions: z.array(z.string()),
+  /** Set when no existing Jira project fits; tickets with jiraProject = its key wait for the owner to create it. */
+  newJiraProject: NewJiraProjectSchema.nullable().optional(),
 });
 export type Plan = z.infer<typeof PlanSchema>;
 
@@ -119,6 +130,9 @@ const DraftTicketDetails = z.object({
 
 const draftSchemas = (withDetails: boolean) =>
   PlanSchema.extend({
+    newJiraProject: NewJiraProjectSchema.describe(
+      'Only when none of the Jira projects you can create tickets in fits this work (a different product, client or team): the project to suggest creating. Otherwise every field empty ("" and template "scrum").',
+    ),
     actions: z.array(
       z.union([
         withDetails ? DraftCreate.extend({ details: DraftTicketDetails.describe("For epics, leave every field empty") }) : DraftCreate,
@@ -136,8 +150,11 @@ export const DraftWithDetailsSchema = draftSchemas(true);
 
 /** A draft as ISA stores it: empty ticket details become null. */
 export function fromDraft(draft: z.infer<typeof DraftWithDetailsSchema> | z.infer<typeof DraftSchema>): Plan {
+  const suggested = draft.newJiraProject;
+  const key = suggested?.key.trim().toUpperCase() ?? "";
   return {
     ...draft,
+    newJiraProject: /^[A-Z][A-Z0-9_]{1,9}$/.test(key) ? { ...suggested, key, name: suggested.name.trim() || key } : null,
     actions: draft.actions.map((a): Action => {
       if (a.type === "jira_create") a = { ...a, jiraProject: (a.jiraProject ?? "").trim().toUpperCase() };
       if (a.type !== "jira_create" || !("details" in a) || !a.details) return a as Action;

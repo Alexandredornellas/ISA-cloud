@@ -6,7 +6,7 @@ import { missingTypeQuestions, type MissingTypeQuestion } from "@/lib/queries";
 import type { Plan } from "@/lib/plan";
 import { getSettings, type Settings } from "@/lib/settings";
 import { openSprintNames } from "@/lib/jira-research";
-import { jiraKeyFor } from "@/lib/jira-project";
+import { jiraKeyFor, jiraProjectChoices, type JiraProjectChoice } from "@/lib/jira-project";
 import { jiraSearcher } from "@/lib/jira-research";
 import type { JiraClient } from "@/lib/jira";
 
@@ -62,6 +62,8 @@ export type Notification = {
   saved: { title: string; op: string; requirementId: string | null }[];
   /** What each ticket this suggestion updates says in Jira now, by key, to show what changes. */
   current: Record<string, { summary: string; description: string }>;
+  /** Jira projects a new ticket can go to, and where one goes when it names none. */
+  jira: { projects: JiraProjectChoice[]; fallback: string | null; site: string | null };
 };
 
 const currentCache = new Map<string, { at: number; summary: string; description: string }>();
@@ -131,6 +133,11 @@ export async function notifications(channelId: string | null): Promise<Notificat
   const asks = await getSettings();
   const creates = rows.some((r) => r.plan.actions.some((a) => a.type === "jira_create" && a.kind !== "epic"));
   const sprints = asks.askSprint && creates ? await openSprintNames(await jiraKeyFor(channelId)) : [];
+  const anyCreate = rows.some((r) => r.plan.actions.some((a) => a.type === "jira_create"));
+  const jiraProjects = anyCreate ? await jiraProjectChoices() : [];
+  const jiraSite = process.env.JIRA_SITE?.replace(/^https?:\/\//, "").replace(/\/$/, "") || null;
+  const fallbacks = new Map<string | null, string | null>();
+  if (anyCreate) for (const pid of new Set(rows.map((r) => r.projectId))) fallbacks.set(pid, await jiraKeyFor(pid));
   const updating = rows.flatMap((r) => r.plan.actions.flatMap((a) => (a.type === "jira_update" && a.issueKey ? [a.issueKey] : [])));
   const current = updating.length ? await currentTickets(updating) : {};
   const existingEpics = epics
@@ -158,6 +165,7 @@ export async function notifications(channelId: string | null): Promise<Notificat
     question: questions.find((q) => q.proposalId === r.id) ?? null,
     asks,
     sprints,
+    jira: { projects: jiraProjects, fallback: fallbacks.get(r.projectId) ?? null, site: jiraSite },
     current: Object.fromEntries(
       r.plan.actions.flatMap((a) => (a.type === "jira_update" && a.issueKey && current[a.issueKey] ? [[a.issueKey, current[a.issueKey]]] : [])),
     ),
