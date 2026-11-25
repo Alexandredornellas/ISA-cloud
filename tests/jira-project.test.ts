@@ -93,7 +93,7 @@ describe("suggesting a new Jira project", () => {
       openQuestions: [],
       projectName: "",
       people: [{ name: "Bruno", email: "", slackUserId: "U1", role: "" }],
-      requirementChanges: [{ ref: "R1", op: "create", title: "t", description: "d", status: "proposed", approvedBy: "", reason: "r" }],
+      requirementChanges: [{ ref: "R1", op: "create", title: "t", description: "d", status: "proposed", approvedBy: "", reason: "r", epic: "" }],
       newJiraProject: { key: "", name: "", template: "scrum", reason: "" },
       actions: [
         { type: "jira_create", requirementRef: "R1", summary: "S", description: "d", kind: "story", epicRef: "", jiraProject: "chk" },

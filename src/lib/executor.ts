@@ -247,6 +247,12 @@ export function mergePeople(current: Person[], incoming: Person[]): Person[] {
 
 type RequirementRow = typeof schema.requirements.$inferSelect;
 
+/** An epic name as stored: trimmed, null when empty. */
+export function epicName(epic: string | null | undefined): string | null {
+  const name = epic?.trim().replace(/\s+/g, " ");
+  return name ? name.slice(0, 80) : null;
+}
+
 async function applyRequirementChanges(
   projectId: string,
   plan: Plan,
@@ -256,6 +262,14 @@ async function applyRequirementChanges(
     where: eq(schema.requirements.projectId, projectId),
   });
   const byRef = new Map<string, RequirementRow>(existing.map((r) => [r.id, r]));
+  // "login" and "Login" are the same epic: keep the spelling the project already uses.
+  const epics = new Map(existing.flatMap((r) => (r.epic ? [[r.epic.toLowerCase(), r.epic] as const] : [])));
+  const epicOf = (raw: string | undefined) => {
+    const name = epicName(raw);
+    if (!name) return null;
+    if (!epics.has(name.toLowerCase())) epics.set(name.toLowerCase(), name);
+    return epics.get(name.toLowerCase())!;
+  };
 
   for (const change of plan.requirementChanges) {
     const current = byRef.get(change.ref);
@@ -268,6 +282,7 @@ async function applyRequirementChanges(
           description: change.description,
           status: change.status,
           approvedBy: change.approvedBy,
+          epic: epicOf(change.epic),
         })
         .returning();
       await recordVersion(row, { ...source, reason: change.reason });
@@ -281,6 +296,7 @@ async function applyRequirementChanges(
           description: change.description,
           status: change.op === "drop" ? "dropped" : change.status,
           approvedBy: change.approvedBy ?? current.approvedBy,
+          epic: epicOf(change.epic) ?? current.epic,
           updatedAt: new Date(),
         })
         .where(eq(schema.requirements.id, current.id))

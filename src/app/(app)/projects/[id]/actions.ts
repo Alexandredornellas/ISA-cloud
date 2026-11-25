@@ -56,3 +56,22 @@ export async function setJiraProject(form: FormData) {
   await setJiraKey(String(form.get("projectId")), String(form.get("key") ?? ""));
   revalidatePath("/", "layout");
 }
+
+/** Fold this project into another one as an epic, then open the project it went into. */
+export async function mergeIntoProject(form: FormData) {
+  const { mergeProjectInto } = await import("@/lib/project-merge");
+  const projectId = String(form.get("projectId"));
+  const targetId = String(form.get("targetId") ?? "");
+  if (!targetId || targetId === projectId) return;
+  await mergeProjectInto(projectId, targetId, String(form.get("epic") ?? ""));
+  revalidatePath("/", "layout");
+  const { redirect } = await import("next/navigation");
+  redirect(`/?c=${encodeURIComponent(targetId)}`);
+}
+
+/** Put a requirement under an epic by hand. ISA's record only, not Jira. */
+export async function setEpic(form: FormData) {
+  const { setRequirementEpic } = await import("@/lib/project-merge");
+  await setRequirementEpic(String(form.get("id")), String(form.get("epic") ?? ""));
+  revalidatePath("/", "layout");
+}

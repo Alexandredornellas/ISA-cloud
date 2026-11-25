@@ -7,7 +7,7 @@ import { activity } from "@/lib/activity";
 import { ChannelView, type Conflict } from "@/components/ChannelView";
 import { Workspace, type PanelTab } from "@/components/Workspace";
 import { ActivityFeed } from "@/components/ActivityFeed";
-import { PeopleAndRules, RequirementList } from "@/components/ProjectPanels";
+import { MergeProject, PeopleAndRules, RequirementList } from "@/components/ProjectPanels";
 import { defaultJiraKey, jiraProjectChoices, learnedJiraKey } from "@/lib/jira-project";
 import { pendingSuggestions, stakeholders } from "@/lib/people";
 import { clearChatMessages } from "./chat/actions";
@@ -98,7 +98,12 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
     { id: "activity", label: "Activity", icon: "clock", content: <ActivityFeed entries={feed} showProject={!projectId} /> },
     ...(project
       ? [
-          { id: "requirements", label: "Requirements", icon: "list" as const, count: open, content: <RequirementList requirements={requirements} projectId={project.id} jira={{ key: project.jiraProjectKey, fallback: jiraFallback, choices: jiraChoices }} /> },
+          { id: "requirements", label: "Requirements", icon: "list" as const, count: open, content: (
+              <>
+                <RequirementList requirements={requirements} projectId={project.id} jira={{ key: project.jiraProjectKey, fallback: jiraFallback, choices: jiraChoices }} />
+                <MergeProject projectId={project.id} name={project.name} others={all.filter((ch) => ch.id && ch.id !== project.id).map((ch) => ({ id: ch.id!, name: ch.name }))} />
+              </>
+            ) },
           { id: "reminders", label: "Agenda", icon: "bell" as const, count: reminders.length, content: <ReminderList reminders={reminders} showProject={false} /> },
           { id: "people", label: "People", icon: "users" as const, count: suggested.length || undefined, content: <PeopleAndRules projectId={project.id} people={team} suggestions={suggested} names={everyone.map((p) => p.name)} rules={rules} /> },
         ]

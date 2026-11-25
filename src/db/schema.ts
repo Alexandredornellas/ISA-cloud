@@ -79,6 +79,8 @@ export const requirements = pgTable(
     title: text("title").notNull(),
     description: text("description").notNull().default(""),
     status: requirementStatus("status").notNull().default("proposed"),
+    // The epic (feature area) inside the project, e.g. "Login". Null when none was given.
+    epic: text("epic"),
     approvedBy: text("approved_by"),
     jiraIssueKey: text("jira_issue_key"),
     // The ticket's status in Jira as of the last sync, e.g. "Em andamento".
