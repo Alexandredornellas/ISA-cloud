@@ -10,7 +10,7 @@ import { openSprintNames, relatedTicketsBlock } from "@/lib/jira-research";
 import { jiraKeyFor, jiraProjectsText } from "@/lib/jira-project";
 import { asksDetails, getSettings, settingsText } from "@/lib/settings";
 import { keepToProject, owners } from "@/lib/ownership";
-import { saveCommitments } from "@/lib/reminders";
+import { remindersToSettle, saveCommitments, suggestClosing } from "@/lib/reminders";
 import { savePersonNotes } from "@/lib/people";
 import { recordMemory } from "@/lib/executor";
 import { saveCardVersion } from "@/lib/card-versions";
@@ -70,7 +70,7 @@ export async function processEvent(eventId: string, llm: StructuredLLM): Promise
     const raw = await llm({
       system: SORT_SYSTEM,
       context,
-      input: `${await ownerLine()}${await conversationSoFar(event)}New item:\n${eventText(event)}`,
+      input: `${await ownerLine()}${await remindersToSettle(event.id)}${await conversationSoFar(event)}New item:\n${eventText(event)}`,
       schema: SortDraftSchema,
       effort: "medium",
     }).then(fromSortDraft);
@@ -78,6 +78,8 @@ export async function processEvent(eventId: string, llm: StructuredLLM): Promise
     const terms = sort.searchTerms ?? [];
     // Like a secretary: what the item asks of the owner becomes a reminder (internal only).
     await saveCommitments(event.id, sort.commitments ?? [], projectIds);
+    // And what it says is already done or no longer needed: ISA only suggests closing it.
+    const settled = await suggestClosing(event.id, sort.settles ?? []);
     await savePersonNotes(event.id, sort.peopleNotes ?? [], projectIds);
 
     const proposalIds: string[] = [];
@@ -132,6 +134,7 @@ export async function processEvent(eventId: string, llm: StructuredLLM): Promise
       proposals: proposalIds.length,
       newProject: !!sort.newProject,
       commitments: sort.commitments?.length ?? 0,
+      settled,
       ms: Date.now() - started,
     });
     if (status === "ignored") return { kind: "ignored" };

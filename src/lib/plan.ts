@@ -244,6 +244,18 @@ const PersonNoteSchema = z.object({
   quote: z.string(),
 });
 
+/** A later item that settles an open reminder: it was done, or is no longer needed. */
+const SettleSchema = z.object({
+  reminderId: z.string(),
+  outcome: z.enum(["done", "cancelled"]),
+  reason: z.string(),
+  quote: z.string(),
+});
+export type Settle = z.infer<typeof SettleSchema>;
+
+/** What ISA suggests about an open reminder, saved on it until the owner closes or keeps it. */
+export type CloseSuggestion = Settle & { eventId: string; at: string };
+
 export const SortResultSchema = z.object({
   matches: z.array(SortMatchSchema),
   newProject: z
@@ -256,6 +268,7 @@ export const SortResultSchema = z.object({
     .describe("2 or 3 short terms to search Jira for related tickets, including synonyms, e.g. MFA, two-factor, OTP"),
   commitments: z.array(CommitmentSchema).optional(),
   peopleNotes: z.array(PersonNoteSchema).optional(),
+  settles: z.array(SettleSchema).optional(),
   reason: z.string(),
 });
 export type SortResult = z.infer<typeof SortResultSchema>;
@@ -289,6 +302,16 @@ export const SortDraftSchema = SortResultSchema.extend({
       }),
     )
     .describe("Lasting facts about people: what they do, what they can help with, who moves a project forward; empty when none"),
+  settles: z
+    .array(
+      z.object({
+        reminderId: z.string().describe("The id of an open to-do or waiting-on, exactly as listed"),
+        outcome: z.enum(["done", "cancelled"]),
+        reason: z.string().describe("Why, in one short sentence the owner reads, e.g. 'Alexandre says the meeting is no longer needed'"),
+        quote: z.string().describe("The words it came from, short"),
+      }),
+    )
+    .describe("Open to-dos and waiting-ons this item clearly says are done or no longer needed; empty when none"),
 });
 
 export function fromSortDraft(d: z.infer<typeof SortDraftSchema>): SortResult {
@@ -311,6 +334,7 @@ export function fromSortDraft(d: z.infer<typeof SortDraftSchema>): SortResult {
       projectId: n.projectId.trim() || null,
       quote: n.quote,
     })),
+    settles: (d.settles ?? []).map((x) => ({ reminderId: x.reminderId.trim(), outcome: x.outcome, reason: x.reason.trim(), quote: x.quote })),
   };
 }
 

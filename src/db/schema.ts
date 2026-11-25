@@ -9,7 +9,7 @@ import {
   uniqueIndex,
   index,
 } from "drizzle-orm/pg-core";
-import type { Person, Plan, SortResult } from "@/lib/plan";
+import type { CloseSuggestion, Person, Plan, SortResult } from "@/lib/plan";
 
 export const eventSource = pgEnum("event_source", [
   "zoom",
@@ -346,6 +346,9 @@ export const reminders = pgTable(
     doneAt: timestamp("done_at", { withTimezone: true }),
     // Set aside by the owner: hidden from the agenda until this day.
     snoozedUntil: timestamp("snoozed_until", { withTimezone: true }),
+    // A later item suggests this is settled ("no need for that meeting"). ISA only suggests:
+    // the owner closes it or keeps it.
+    closeSuggestion: jsonb("close_suggestion").$type<CloseSuggestion>(),
     ...timestamps,
   },
   (t) => [index("reminders_status_idx").on(t.status)],
