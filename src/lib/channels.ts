@@ -6,7 +6,7 @@ import { missingTypeQuestions, type MissingTypeQuestion } from "@/lib/queries";
 import type { Plan } from "@/lib/plan";
 import { getSettings, type Settings } from "@/lib/settings";
 import { openSprintNames } from "@/lib/jira-research";
-import { jiraKeyFor } from "@/lib/jira-project";
+import { jiraKeyFor, jiraProjectChoices, type JiraProjectChoice } from "@/lib/jira-project";
 import { jiraSearcher } from "@/lib/jira-research";
 import type { JiraClient } from "@/lib/jira";
 
@@ -67,6 +67,8 @@ export type Notification = {
    * text as the draft had it before, or "new" for a step the new information added.
    */
   redraft: Record<number, { summary: string; description: string } | "new">;
+  /** Jira projects a new ticket can go to, and where one goes when it names none. */
+  jira: { projects: JiraProjectChoice[]; fallback: string | null; site: string | null };
 };
 
 /** What the latest items changed in a waiting draft, step by step. Empty when it was never redrafted. */
@@ -160,6 +162,11 @@ export async function notifications(channelId: string | null): Promise<Notificat
   const asks = await getSettings();
   const creates = rows.some((r) => r.plan.actions.some((a) => a.type === "jira_create" && a.kind !== "epic"));
   const sprints = asks.askSprint && creates ? await openSprintNames(await jiraKeyFor(channelId)) : [];
+  const anyCreate = rows.some((r) => r.plan.actions.some((a) => a.type === "jira_create"));
+  const jiraProjects = anyCreate ? await jiraProjectChoices() : [];
+  const jiraSite = process.env.JIRA_SITE?.replace(/^https?:\/\//, "").replace(/\/$/, "") || null;
+  const fallbacks = new Map<string | null, string | null>();
+  if (anyCreate) for (const pid of new Set(rows.map((r) => r.projectId))) fallbacks.set(pid, await jiraKeyFor(pid));
   const updating = rows.flatMap((r) => r.plan.actions.flatMap((a) => (a.type === "jira_update" && a.issueKey ? [a.issueKey] : [])));
   const current = updating.length ? await currentTickets(updating) : {};
   const existingEpics = epics
@@ -188,6 +195,7 @@ export async function notifications(channelId: string | null): Promise<Notificat
     asks,
     sprints,
     redraft: r.status === "pending" ? redraftOf(r.plan, r.previousPlan) : {},
+    jira: { projects: jiraProjects, fallback: fallbacks.get(r.projectId) ?? null, site: jiraSite },
     current: Object.fromEntries(
       r.plan.actions.flatMap((a) => (a.type === "jira_update" && a.issueKey && current[a.issueKey] ? [[a.issueKey, current[a.issueKey]]] : [])),
     ),

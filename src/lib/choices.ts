@@ -10,6 +10,8 @@ export type Choices = {
   epic?: { mode: "new"; name: string } | { mode: "existing"; key: string } | null;
   /** Per new ticket (by position): the details the owner confirmed. A field left out keeps ISA's suggestion. */
   details?: Record<number, DetailChoice>;
+  /** Per new ticket or epic (by position): the Jira project the owner chose for it. */
+  projects?: Record<number, string>;
 };
 
 export type DetailChoice = {
@@ -35,6 +37,13 @@ function withDetails(a: Action, d: DetailChoice | undefined): Action {
 }
 
 const JIRA_KEY = /^[A-Z][A-Z0-9_]+-\d+$/;
+const PROJECT_KEY = /^[A-Z][A-Z0-9_]{0,19}$/;
+
+function withProject(a: Action, key: string | undefined): Action {
+  if (a.type !== "jira_create" || key === undefined) return a;
+  const k = key.trim().toUpperCase();
+  return k === "" || PROJECT_KEY.test(k) ? { ...a, jiraProject: k } : a;
+}
 
 /**
  * The plan as the owner wants it carried out: only the kept steps, with the epic renamed or
@@ -43,7 +52,9 @@ const JIRA_KEY = /^[A-Z][A-Z0-9_]+-\d+$/;
  */
 export function applyChoices(plan: Plan, choices: Choices): Plan {
   const keep = new Set(choices.keep);
-  let actions = plan.actions.map((a, i) => withDetails(a, choices.details?.[i])).filter((_, i) => keep.has(i));
+  let actions = plan.actions
+    .map((a, i) => withProject(withDetails(a, choices.details?.[i]), choices.projects?.[i]))
+    .filter((_, i) => keep.has(i));
   let requirementChanges = plan.requirementChanges;
 
   const epicRefs = new Set(plan.actions.flatMap((a) => (a.type === "jira_create" && a.kind === "epic" ? [a.requirementRef] : [])));
@@ -67,7 +78,9 @@ export function applyChoices(plan: Plan, choices: Choices): Plan {
     a.type === "jira_create" && a.epicRef && !JIRA_KEY.test(a.epicRef) && !created.has(a.epicRef) ? { ...a, epicRef: null } : a,
   );
 
-  return { ...plan, actions, requirementChanges };
+  // The suggested new Jira project goes once no kept ticket waits for it.
+  const waiting = plan.newJiraProject && actions.some((a) => a.type === "jira_create" && a.jiraProject === plan.newJiraProject!.key);
+  return { ...plan, actions, requirementChanges, ...(plan.newJiraProject && !waiting ? { newJiraProject: null } : {}) };
 }
 
 /** Save the owner's choices on a pending suggestion, so "Do it" carries out exactly that. */

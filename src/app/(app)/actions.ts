@@ -77,9 +77,22 @@ export async function proceedNotification(form: FormData) {
       : mode === "existing"
         ? { mode: "existing" as const, key: String(form.get("epicKey") ?? "") }
         : null;
-  await saveChoices(id, { keep, epic, details: detailsFrom(form, keep) });
+  const projects: Record<number, string> = {};
+  for (const i of keep) if (form.has(`p${i}`)) projects[i] = String(form.get(`p${i}`) ?? "");
+  await saveChoices(id, { keep, epic, details: detailsFrom(form, keep), projects });
   await executeProposal(id, liveSenders());
   revalidatePath("/", "layout");
+}
+
+/**
+ * "Move them there" on a card that suggested a new Jira project: the owner created it (or picked
+ * another) and typed its key. Only ISA's draft changes; nothing is sent to Jira.
+ */
+export async function moveCardToJiraProject(id: string, key: string): Promise<{ ok: true; moved: number } | { ok: false; error: string }> {
+  const { adoptJiraProject } = await import("@/lib/jira-project");
+  const r = await adoptJiraProject(key, { proposalId: id });
+  if (r.ok) revalidatePath("/", "layout");
+  return r.ok ? { ok: true, moved: r.moved } : r;
 }
 
 /** "Not needed" on a card: a draft is dismissed, a failure is put aside. Either way it leaves the channel. */

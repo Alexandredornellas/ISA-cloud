@@ -5,8 +5,11 @@ import postgres from "postgres";
 import { db, schema } from "@/db";
 import { executeProposal } from "@/lib/executor";
 import type { JiraClient } from "@/lib/jira";
-import type { Plan } from "@/lib/plan";
-import { jiraKeyFor, setJiraKey } from "@/lib/jira-project";
+import { eq } from "drizzle-orm";
+import { fromDraft, type Plan } from "@/lib/plan";
+import { applyChoices } from "@/lib/choices";
+import { useJiraSearcher } from "@/lib/jira-research";
+import { adoptJiraProject, jiraKeyFor, moveToJiraProject, setJiraKey } from "@/lib/jira-project";
 
 beforeAll(async () => {
   const c = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} });
@@ -64,5 +67,55 @@ describe("Jira project per ISA project", () => {
     const [p] = await db.insert(schema.proposals).values({ kind: "update", projectId: project.id, title: "t", plan: chosen }).returning();
     await executeProposal(p.id, { jira, slack: null, email: null });
     expect(calls).toEqual(["create PAY"]);
+  });
+});
+
+describe("suggesting a new Jira project", () => {
+  const waiting: Plan = {
+    ...plan,
+    newJiraProject: { key: "NFS8", name: "Need for Speed 8", template: "scrum", reason: "No project is about this game." },
+    actions: [
+      { type: "jira_create", requirementRef: "R1", summary: "NFS8", description: "d", kind: "epic", epicRef: null, jiraProject: "NFS8" },
+      { type: "jira_create", requirementRef: "R2", summary: "Engine spike", description: "d", kind: "spike", epicRef: "R1", jiraProject: "NFS8" },
+      { type: "jira_create", requirementRef: "R3", summary: "Other", description: "d", kind: "story", epicRef: null, jiraProject: "SCRUM" },
+    ],
+  };
+
+  it("keeps a valid suggestion from a draft and drops an empty one", () => {
+    const draft = { ...waiting, newJiraProject: { key: " nfs8 ", name: "", template: "scrum" as const, reason: "r" }, actions: [] };
+    expect(fromDraft(draft).newJiraProject).toEqual({ key: "NFS8", name: "NFS8", template: "scrum", reason: "r" });
+    expect(fromDraft({ ...draft, newJiraProject: { key: "", name: "", template: "scrum", reason: "" } }).newJiraProject).toBeNull();
+  });
+
+  it("moves only the waiting tickets once the owner gives the key", () => {
+    const { plan: moved, moved: n } = moveToJiraProject(waiting, "NFS");
+    expect(n).toBe(2);
+    expect(moved.newJiraProject).toBeNull();
+    expect(moved.actions.map((a) => (a.type === "jira_create" ? a.jiraProject : null))).toEqual(["NFS", "NFS", "SCRUM"]);
+  });
+
+  it("lets the owner pick another project per step on the card", () => {
+    const chosen = applyChoices(waiting, { keep: [0, 1, 2], projects: { 0: "be", 1: "BE", 2: "not a key!" } });
+    expect(chosen.actions.map((a) => (a.type === "jira_create" ? a.jiraProject : null))).toEqual(["BE", "BE", "SCRUM"]);
+    expect(chosen.newJiraProject).toBeNull();
+    expect(applyChoices(waiting, { keep: [0, 1, 2] }).newJiraProject?.key).toBe("NFS8");
+  });
+
+  it("checks Jira can see the new project, then moves the card and sets the ISA project's key", async () => {
+    const [project] = await db.insert(schema.projects).values({ name: "NFS8" }).returning();
+    const [p] = await db.insert(schema.proposals).values({ kind: "new_project", projectId: project.id, title: "t", plan: waiting }).returning();
+    let visible = [{ key: "SCRUM", name: "ISA" }];
+    useJiraSearcher({ listProjects: async () => visible } as unknown as JiraClient);
+    try {
+      const notYet = await adoptJiraProject("NFS8", { proposalId: p.id });
+      expect(notYet.ok).toBe(false);
+      visible = [...visible, { key: "NFS8", name: "Need for Speed 8" }];
+      expect(await adoptJiraProject("nfs8", { proposalId: p.id })).toEqual({ ok: true, key: "NFS8", moved: 2 });
+      const after = await db.query.proposals.findFirst({ where: eq(schema.proposals.id, p.id) });
+      expect(after?.plan.newJiraProject).toBeNull();
+      expect(await jiraKeyFor(project.id)).toBe("NFS8");
+    } finally {
+      useJiraSearcher(undefined);
+    }
   });
 });

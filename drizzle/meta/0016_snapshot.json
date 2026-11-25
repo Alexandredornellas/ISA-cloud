@@ -1,5 +1,5 @@
 {
-  "id": "424c5239-0acf-43bf-9ba7-4f8135f1c53a",
+  "id": "2e6a2502-a81c-4881-82e0-eebb9a46db0e",
   "prevId": "a098a7f7-7068-4bcc-9049-64c356ebd561",
   "version": "7",
   "dialect": "postgresql",
@@ -1445,12 +1445,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "previous_plan": {
-          "name": "previous_plan",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "error": {
           "name": "error",
           "type": "text",
@@ -1585,6 +1579,12 @@
         },
         "done_at": {
           "name": "done_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "snoozed_until": {
+          "name": "snoozed_until",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false

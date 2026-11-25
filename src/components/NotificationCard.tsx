@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { describeAction, type Action } from "@/lib/plan";
 import type { Notification } from "@/lib/channels";
-import { dismissNotification, placeNotification, proceedNotification, retryProposal } from "@/app/(app)/actions";
+import { dismissNotification, moveCardToJiraProject, placeNotification, proceedNotification, retryProposal } from "@/app/(app)/actions";
 import { SubmitButton } from "@/components/SubmitButton";
 import { QuestionCard } from "@/components/QuestionCard";
 import { SourceMark } from "@/components/SourceMark";
@@ -58,6 +58,23 @@ export function NotificationCard({
   const [epicMode, setEpicMode] = useState<"new" | "existing">("new");
   const [epicName, setEpicName] = useState(epicAction?.summary ?? "");
   const [place, setPlace] = useState(n.places[0]?.projectId ?? "new");
+  // The Jira project each new ticket goes to ("" = the project's default), changeable per step.
+  const [projects, setProjects] = useState<string[]>(() => actions.map((a) => (a.type === "jira_create" ? (a.jiraProject ?? "") : "")));
+  const known = new Set(n.jira.projects.map((p) => p.key));
+  const suggested = n.plan.newJiraProject && !known.has(n.plan.newJiraProject.key) ? n.plan.newJiraProject : null;
+  const missing = (key: string) => key !== "" && n.jira.projects.length > 0 && !known.has(key);
+  const waiting = actions.filter(
+    (a, i) => a.type === "jira_create" && kept[i] && missing(projects[i]) && !(epicMode === "existing" && a === epicAction),
+  ).length;
+  // Moving the new epic moves the tickets under it that were going to the same place.
+  const setProject = (i: number, key: string) =>
+    setProjects((ps) => {
+      const a = actions[i];
+      const followers = new Set(
+        a === epicAction ? actions.flatMap((b, j) => (b.type === "jira_create" && b.epicRef === epicAction.requirementRef && ps[j] === ps[i] ? [j] : [])) : [],
+      );
+      return ps.map((v, j) => (j === i || followers.has(j) ? key : v));
+    });
   // The header names the latest source; a card that grew with new items says so.
   const first = n.sources.at(-1);
   const more = n.sources.length - 1;
@@ -75,7 +92,9 @@ export function NotificationCard({
       : `Do ${chosen} of ${actions.length} steps`;
 
   // Where a ticket goes, in words: the new epic by its name, or the existing epic the owner chose.
+  // The Jira project is chosen under the step, so the label leaves it out.
   const stepLabel = (a: Action) => {
+    if (a.type === "jira_create" && !failed) a = { ...a, jiraProject: "" };
     if (a.type !== "jira_create" || !a.epicRef || a.kind === "epic") return describeAction(a);
     const base = describeAction({ ...a, epicRef: null });
     if (/^[A-Z][A-Z0-9_]+-\d+$/.test(a.epicRef)) return `${base} (under epic ${a.epicRef})`;
@@ -234,6 +253,16 @@ export function NotificationCard({
                 </fieldset>
               ) : null}
 
+              {suggested && !failed ? (
+                <NewJiraProjectSuggestion
+                  id={n.id}
+                  s={suggested}
+                  site={n.jira.site}
+                  count={projects.filter((p) => p === suggested.key).length}
+                  onMoved={(key) => setProjects((ps) => ps.map((p) => (p === suggested.key ? key : p)))}
+                />
+              ) : null}
+
               {actions.length ? (
                 <section>
                   <h3 className={`${label} mb-2`}>{failed ? "Steps" : n.saved.length ? "Optional next steps (only if you approve)" : "ISA suggests"}</h3>
@@ -274,6 +303,16 @@ export function NotificationCard({
                               ) : null}
                             </span>
                           </label>
+                          {a.type === "jira_create" && !failed && kept[i] ? (
+                            <JiraProjectPick
+                              i={i}
+                              value={projects[i]}
+                              onChange={(key) => setProject(i, key)}
+                              jira={n.jira}
+                              suggested={suggested}
+                              missing={missing(projects[i])}
+                            />
+                          ) : null}
                           {!failed && kept[i] ? <TicketAsks n={n} a={a} i={i} newEpicRef={epicAction?.requirementRef ?? null} /> : null}
                         </li>
                       );
@@ -293,8 +332,16 @@ export function NotificationCard({
                 </section>
               ) : null}
 
+              {waiting && !failed ? (
+                <p className="text-sm text-warn">
+                  {waiting === 1 ? "1 step waits" : `${waiting} steps wait`} for a Jira project that doesn&apos;t exist yet. Create it in Jira and move them there, pick an existing project, or untick them.
+                </p>
+              ) : null}
+
               <div className="flex flex-wrap gap-2">
-                <SubmitButton className="bg-accent text-white">{failed ? "Try again" : proceedLabel}</SubmitButton>
+                <SubmitButton className="bg-accent text-white" disabled={!failed && waiting > 0}>
+                  {failed ? "Try again" : proceedLabel}
+                </SubmitButton>
                 {failed ? null : (
                   <button type="button" onClick={onChange} className="rounded-lg border border-line px-4 py-2 text-sm font-medium">
                     Change with ISA
@@ -314,6 +361,122 @@ export function NotificationCard({
 }
 
 const field = "w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm";
+
+/** Which Jira project one new ticket goes to: ISA's choice, changeable. Field p<step>. */
+function JiraProjectPick({
+  i,
+  value,
+  onChange,
+  jira,
+  suggested,
+  missing,
+}: {
+  i: number;
+  value: string;
+  onChange: (key: string) => void;
+  jira: Notification["jira"];
+  suggested: NonNullable<Notification["plan"]["newJiraProject"]> | null;
+  missing: boolean;
+}) {
+  const listed = jira.projects.some((p) => p.key === value) || value === "" || value === suggested?.key;
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-t border-line px-3 py-2 text-sm sm:pl-10">
+      <label htmlFor={`p${i}`} className="text-muted">
+        Jira project
+      </label>
+      <select id={`p${i}`} name={`p${i}`} value={value} onChange={(e) => onChange(e.target.value)} className="min-w-[10rem] flex-1 rounded-lg border border-line bg-bg px-2 py-1 sm:flex-none">
+        <option value="">Default{jira.fallback ? ` (${jira.fallback})` : ""}</option>
+        {jira.projects.map((p) => (
+          <option key={p.key} value={p.key}>
+            {p.key} · {p.name}
+          </option>
+        ))}
+        {suggested ? <option value={suggested.key}>{suggested.key} · {suggested.name} (new, not in Jira yet)</option> : null}
+        {!listed ? <option value={value}>{value} (not found in Jira)</option> : null}
+      </select>
+      {missing ? <span className="rounded-md bg-warn/15 px-2 py-0.5 text-xs text-warn">Waiting for this project</span> : null}
+    </div>
+  );
+}
+
+/**
+ * ISA found no Jira project that fits and suggests one. It cannot create Jira projects, so the
+ * owner creates it and gives the key; the waiting steps then move there. Nothing is sent to Jira.
+ */
+function NewJiraProjectSuggestion({
+  id,
+  s,
+  site,
+  count,
+  onMoved,
+}: {
+  id: string;
+  s: NonNullable<Notification["plan"]["newJiraProject"]>;
+  site: string | null;
+  count: number;
+  onMoved: (key: string) => void;
+}) {
+  const [key, setKey] = useState(s.key);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, start] = useTransition();
+  const move = () =>
+    start(async () => {
+      setError(null);
+      const r = await moveCardToJiraProject(id, key);
+      if (r.ok) onMoved(key.trim().toUpperCase());
+      else setError(r.error);
+    });
+  return (
+    <section className="space-y-3 rounded-lg border border-warn/50 bg-warn/5 p-3">
+      <div>
+        <h3 className="text-sm font-semibold">
+          No Jira project fits this <span className="ml-1 rounded-md bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent">ISA suggests a new one</span>
+        </h3>
+        <p className="mt-1 text-sm text-muted">{s.reason}</p>
+      </div>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+        <dt className="text-muted">Key</dt>
+        <dd className="font-mono">{s.key}</dd>
+        <dt className="text-muted">Name</dt>
+        <dd>{s.name}</dd>
+        <dt className="text-muted">Template</dt>
+        <dd>{s.template === "kanban" ? "Kanban" : "Scrum"}</dd>
+      </dl>
+      <p className="text-xs text-muted">
+        ISA can&apos;t create Jira projects. Someone with Jira admin rights creates it
+        {site ? (
+          <>
+            {" "}
+            (
+            <a href={`https://${site}/jira/projects`} target="_blank" rel="noreferrer" className="text-accent underline">
+              open Jira projects
+            </a>
+            )
+          </>
+        ) : null}
+        , then type the key it got and ISA moves {count === 1 ? "the step" : `the ${count} steps`} there.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          aria-label="Key of the new Jira project"
+          value={key}
+          onChange={(e) => setKey(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              move();
+            }
+          }}
+          className="w-28 rounded-lg border border-line bg-bg px-3 py-1.5 font-mono text-sm uppercase"
+        />
+        <button type="button" onClick={move} disabled={busy || !key.trim()} className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-medium disabled:opacity-60">
+          {busy ? "Checking Jira…" : "It's created, move them there"}
+        </button>
+      </div>
+      {error ? <p className="text-sm text-danger">{error}</p> : null}
+    </section>
+  );
+}
 
 /**
  * The details the owner's settings say to confirm on a new ticket, filled with ISA's suggestions.

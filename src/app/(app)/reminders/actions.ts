@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { addReminder, setReminderStatus } from "@/lib/reminders";
+import { addReminder, setReminderStatus, snoozeReminder } from "@/lib/reminders";
 
 export async function reminderStatus(form: FormData) {
   const status = String(form.get("status"));
@@ -20,5 +20,12 @@ export async function newReminder(form: FormData) {
     projectId: String(form.get("projectId") ?? "") || null,
     direction: form.get("direction") === "theirs" ? "theirs" : "mine",
   });
+  revalidatePath("/", "layout");
+}
+
+/** Set a reminder aside for 1 to 30 days, or bring it back (days 0). */
+export async function snooze(form: FormData) {
+  const days = Math.min(30, Math.max(0, Math.round(Number(form.get("days")) || 0)));
+  await snoozeReminder(String(form.get("id")), days || null);
   revalidatePath("/", "layout");
 }

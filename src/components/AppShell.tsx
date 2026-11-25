@@ -6,6 +6,7 @@ import { Suspense, useState } from "react";
 import type { Channel } from "@/lib/channels";
 import { Icon, type IconName } from "@/components/Icon";
 import { LiveRefresh } from "@/components/LiveRefresh";
+import { VisitStamp } from "@/components/Fresh";
 
 /**
  * The frame around every screen: a sidebar with Ask ISA, the projects (with what needs you in
@@ -29,13 +30,13 @@ export function AppShell({ channels, dueReminders, peopleSuggestions = 0, intake
       </Link>
 
       <Item href="/" icon="grid" label="Home" count={0} match="overview" />
+      <Item href="/reminders" icon="bell" label="Agenda" count={dueReminders} match="/reminders" />
       <Item href="/?c=general" icon="chat" label="Ask ISA" count={general?.count ?? 0} match="general" />
-      <Item href="/inbox" icon="inbox" label="Intake" count={intake} match="/inbox" />
+      <Item href="/inbox" icon="inbox" label="Intake" count={intake} match="/inbox" quiet />
 
       <Group label="Know" />
       <Item href="/decisions" icon="memory" label="Decisions" count={0} match="/decisions" />
-      <Item href="/people" icon="users" label="Who knows what" count={peopleSuggestions} match="/people" />
-      <Item href="/reminders" icon="bell" label="Who owes what" count={dueReminders} match="/reminders" />
+      <Item href="/people" icon="users" label="Who knows what" count={peopleSuggestions} match="/people" quiet />
 
       <Group label="Create" />
       <Item href="/diagrams" icon="flow" label="Diagrams" count={0} match="/diagrams" />
@@ -97,11 +98,13 @@ export function AppShell({ channels, dueReminders, peopleSuggestions = 0, intake
 
       <main className="min-w-0">{children}</main>
       <LiveRefresh />
+      <VisitStamp />
     </div>
   );
 }
 
-type ItemProps = { href: string; label: string; count: number; match: string; icon?: IconName; dot?: boolean; muted?: boolean };
+/** `quiet` counts are information, shown in grey. Amber badges are kept for what needs an action. */
+type ItemProps = { href: string; label: string; count: number; match: string; icon?: IconName; dot?: boolean; muted?: boolean; quiet?: boolean };
 
 /** A sidebar link. Which one is current needs the URL's query, read on the client only. */
 function Item(props: ItemProps) {
@@ -119,7 +122,7 @@ function ActiveItem(props: ItemProps) {
   return <ItemLink {...props} active={active} />;
 }
 
-function ItemLink({ href, label, count, active, icon, dot, muted }: ItemProps & { active: boolean }) {
+function ItemLink({ href, label, count, active, icon, dot, muted, quiet }: ItemProps & { active: boolean }) {
   return (
     <Link
       href={href}
@@ -129,7 +132,11 @@ function ItemLink({ href, label, count, active, icon, dot, muted }: ItemProps & 
       {icon ? <Icon name={icon} className="h-4 w-4 flex-none text-muted" /> : null}
       {dot ? <span aria-hidden="true" className={`h-2 w-2 flex-none rounded-full ${count ? "bg-warn" : muted ? "bg-ok" : "bg-line"}`} /> : null}
       <span className="min-w-0 flex-1 truncate">{label}</span>
-      {count ? (
+      {count && quiet ? (
+        <span className="flex-none px-1.5 text-xs tabular-nums text-muted" aria-label={`${count} to look at`}>
+          {count}
+        </span>
+      ) : count ? (
         <span className="inline-flex h-5 min-w-5 flex-none items-center justify-center rounded-full bg-warn px-1.5 text-[11px] font-semibold text-surface" aria-label={`${count} need you`}>
           {count}
         </span>

@@ -1,10 +1,11 @@
 // Which Jira project each ISA project creates tickets in. Reading and search cover every Jira
 // project the account can see; new tickets, epics and sprints use the project's own key, or
 // JIRA_PROJECT_KEY when it has none.
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { jiraSearcher } from "@/lib/jira-research";
 import type { JiraClient } from "@/lib/jira";
+import type { Plan } from "@/lib/plan";
 
 export const JIRA_KEY = /^[A-Z][A-Z0-9_]{0,19}$/;
 
@@ -40,13 +41,34 @@ export async function learnedJiraKey(projectId: string): Promise<string | null> 
   return [...count.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 }
 
-/** What drafting needs to choose a Jira project per ticket. */
+/** Up to five epic titles per Jira project, from ISA's copy of the tickets: a hint of each project's scope. */
+async function epicsByJiraProject(): Promise<Map<string, string[]>> {
+  const rows = await db
+    .select({ key: schema.jiraTickets.key, summary: schema.jiraTickets.summary, issueType: schema.jiraTickets.issueType })
+    .from(schema.jiraTickets)
+    .where(isNull(schema.jiraTickets.deletedAt));
+  const out = new Map<string, string[]>();
+  for (const r of rows) {
+    if (!/^(epic|[eé]pico|[eé]pica|epique)$/i.test(r.issueType ?? "")) continue;
+    const prefix = r.key.split("-")[0];
+    const list = out.get(prefix) ?? [];
+    if (list.length < 5) out.set(prefix, [...list, r.summary]);
+  }
+  return out;
+}
+
+/** What drafting needs to choose a Jira project per ticket, or to suggest a new one. */
 export async function jiraProjectsText(projectId: string | null): Promise<string> {
-  const [fallback, choices] = await Promise.all([jiraKeyFor(projectId), jiraProjectChoices()]);
+  const [fallback, choices, epics] = await Promise.all([jiraKeyFor(projectId), jiraProjectChoices(), epicsByJiraProject()]);
+  const line = (c: JiraProjectChoice) => {
+    const e = epics.get(c.key);
+    return `- ${c.key} "${c.name}"${c.description ? `: ${c.description}` : ""}${e?.length ? ` (epics: ${e.map((t) => `"${t}"`).join(", ")})` : ""}`;
+  };
   return [
-    `Jira projects you can create tickets in: ${choices.length ? choices.map((c) => `${c.key} (${c.name})`).join(", ") : "(list unavailable)"}.`,
-    `For each new ticket, set jiraProject to the Jira project it belongs in, judging from what you know: where the related tickets, its epic or this project's other tickets live, and what the item says. Use "" when unsure; it then goes to ${fallback ?? "the default project"}.`,
-  ].join(" ");
+    `Jira projects you can create tickets in:\n${choices.length ? choices.map(line).join("\n") : "(list unavailable)"}`,
+    `For each new ticket, set jiraProject to the Jira project whose scope fits the work: the same product, client or team, judging from its name, description and epics, where the related tickets or the epic live, and what the item says. ${fallback ?? "The default project"} is only the default, not a reason to choose it. A similar domain is not a fit (one game's project does not fit another game).`,
+    `When none of them fits, fill newJiraProject with a project to suggest creating (a short unused key, a name, scrum or kanban, and why), and set jiraProject of this work's tickets to that key. ISA cannot create Jira projects: the owner creates it, and the tickets wait for it. Use "" when unsure; it then goes to ${fallback ?? "the default project"}.`,
+  ].join("\n");
 }
 
 /** Set (or clear, with "") the Jira project an ISA project uses. Returns the saved key or an error. */
@@ -57,11 +79,13 @@ export async function setJiraKey(projectId: string, raw: string): Promise<{ ok: 
   return { ok: true, key: key || null };
 }
 
-let projectCache: { at: number; list: { key: string; name: string }[] } | null = null;
+export type JiraProjectChoice = { key: string; name: string; description?: string };
 
-/** Jira projects to choose from (cached for five minutes); empty when Jira is not connected. */
-export async function jiraProjectChoices(): Promise<{ key: string; name: string }[]> {
-  if (projectCache && Date.now() - projectCache.at < 300_000) return projectCache.list;
+let projectCache: { at: number; list: JiraProjectChoice[] } | null = null;
+
+/** Jira projects to choose from (cached for five minutes, or fetched again with fresh); empty when Jira is not connected. */
+export async function jiraProjectChoices(fresh = false): Promise<JiraProjectChoice[]> {
+  if (!fresh && projectCache && Date.now() - projectCache.at < 300_000) return projectCache.list;
   const jira = jiraSearcher();
   if (!jira || !("listProjects" in jira)) return [];
   try {
@@ -72,4 +96,53 @@ export async function jiraProjectChoices(): Promise<{ key: string; name: string 
     console.error("jira projects failed", { error: err instanceof Error ? err.name : "unknown" });
     return [];
   }
+}
+
+/**
+ * The plan with the tickets that waited for the suggested new Jira project moved to `key`, the
+ * project the owner created (or chose instead). The suggestion is then settled.
+ */
+export function moveToJiraProject(plan: Plan, key: string): { plan: Plan; moved: number } {
+  const from = plan.newJiraProject?.key;
+  let moved = 0;
+  const actions = plan.actions.map((a) => {
+    if (a.type !== "jira_create" || !from || a.jiraProject !== from) return a;
+    moved++;
+    return { ...a, jiraProject: key };
+  });
+  return { plan: { ...plan, actions, newJiraProject: null }, moved };
+}
+
+/**
+ * The owner created the suggested Jira project (or picked another): check Jira can see it, move the
+ * waiting tickets of this suggestion (or, without one, of every waiting suggestion in the project)
+ * there, and make it the ISA project's Jira project. Nothing is sent to Jira.
+ */
+export async function adoptJiraProject(
+  raw: string,
+  where: { proposalId: string } | { projectId: string },
+): Promise<{ ok: true; key: string; moved: number } | { ok: false; error: string }> {
+  const key = raw.trim().toUpperCase();
+  if (!JIRA_KEY.test(key)) return { ok: false, error: `"${raw}" is not a Jira project key (like NFS8).` };
+  const known = await jiraProjectChoices(true);
+  if (known.length && !known.some((p) => p.key === key)) {
+    return { ok: false, error: `ISA can't see a Jira project ${key} yet. Create it in Jira first, or check the key.` };
+  }
+  const rows = await db.query.proposals.findMany({
+    where:
+      "proposalId" in where
+        ? and(eq(schema.proposals.id, where.proposalId), eq(schema.proposals.status, "pending"))
+        : and(eq(schema.proposals.projectId, where.projectId), eq(schema.proposals.status, "pending")),
+  });
+  let moved = 0;
+  let projectId = "projectId" in where ? where.projectId : null;
+  for (const r of rows) {
+    if (!r.plan.newJiraProject) continue;
+    const out = moveToJiraProject(r.plan, key);
+    moved += out.moved;
+    projectId ??= r.projectId;
+    await db.update(schema.proposals).set({ plan: out.plan, updatedAt: new Date() }).where(eq(schema.proposals.id, r.id));
+  }
+  if (projectId) await setJiraKey(projectId, key);
+  return { ok: true, key, moved };
 }
