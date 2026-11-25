@@ -319,6 +319,8 @@ export const reminders = pgTable(
     quote: text("quote"),
     status: text("status").notNull().default("open"), // open | done | dismissed
     doneAt: timestamp("done_at", { withTimezone: true }),
+    // Set aside by the owner: hidden from the agenda until this day.
+    snoozedUntil: timestamp("snoozed_until", { withTimezone: true }),
     ...timestamps,
   },
   (t) => [index("reminders_status_idx").on(t.status)],

@@ -16,6 +16,8 @@ import { Overview } from "@/components/Overview";
 import { memoryStats } from "@/lib/trail";
 import { getSettings } from "@/lib/settings";
 import { openReminders } from "@/lib/reminders";
+import { nextMeeting, upcomingMeetings } from "@/lib/agenda";
+import { meetingBriefs } from "@/lib/brief";
 import { ReminderList } from "@/components/ReminderList";
 
 export const dynamic = "force-dynamic";
@@ -42,8 +44,20 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
   const { c, ask, send } = await searchParams;
   const all = await channels();
   if (!c && typeof ask !== "string") {
-    const [{ projects, reminders }, feed, stats, settings] = await Promise.all([portfolio(), activity(null, 10), memoryStats(), getSettings()]);
-    return <Overview projects={projects} reminders={reminders} feed={feed} generalCount={all[0].count} stats={stats} name={settings.ownerName} />;
+    const [{ projects, reminders }, feed, stats, settings, meetings] = await Promise.all([portfolio(), activity(null, 10), memoryStats(), getSettings(), upcomingMeetings()]);
+    const next = nextMeeting(meetings);
+    const brief = next ? (await meetingBriefs([next.meeting], { projects, reminders }))[next.meeting.id] : undefined;
+    return (
+      <Overview
+        projects={projects}
+        reminders={reminders}
+        feed={feed}
+        generalCount={all[0].count}
+        stats={stats}
+        name={settings.ownerName}
+        next={next ? { id: next.meeting.id, title: next.meeting.title, when: next.when, points: brief?.points ?? 0 } : undefined}
+      />
+    );
   }
   const current = (typeof c === "string" && all.find((ch) => ch.id === c)) || all[0];
   const projectId = current.id;

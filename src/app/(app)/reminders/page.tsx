@@ -5,7 +5,8 @@ import { upcomingMeetings } from "@/lib/agenda";
 import { openReminders, recentlyDone } from "@/lib/reminders";
 import { ReminderList } from "@/components/ReminderList";
 import { SubmitButton } from "@/components/SubmitButton";
-import { newReminder, reminderStatus } from "./actions";
+import { newReminder, reminderStatus, snooze } from "./actions";
+import { meetingBriefs } from "@/lib/brief";
 
 export const dynamic = "force-dynamic";
 
@@ -21,12 +22,14 @@ const FILTERS = [
 export default async function AgendaPage({ searchParams }: { searchParams: Promise<{ show?: string }> }) {
   const { show } = await searchParams;
   const filter = show === "mine" || show === "theirs" ? show : "all";
-  const [open, done, projects, meetings] = await Promise.all([
+  const [open, snoozed, done, projects, meetings] = await Promise.all([
     openReminders(),
+    openReminders(null, "only"),
     recentlyDone(),
     db.select({ id: schema.projects.id, name: schema.projects.name }).from(schema.projects).orderBy(desc(schema.projects.updatedAt)),
     upcomingMeetings(),
   ]);
+  const briefs = await meetingBriefs(meetings);
   const count = { all: open.length, mine: open.filter((r) => r.direction === "mine").length, theirs: open.filter((r) => r.direction === "theirs").length };
   const shown = filter === "all" ? open : open.filter((r) => r.direction === filter);
 
@@ -48,7 +51,7 @@ export default async function AgendaPage({ searchParams }: { searchParams: Promi
         </nav>
       </div>
       <p className="mt-1 text-sm text-muted">
-        What you promised (→) and what others promised you (←), picked up from your meetings, email and Slack. Only you see it.
+        What you promised (→) and what others promised you (←), picked up from your meetings, email and Slack, with a brief before each meeting. Only you see it.
       </p>
 
       <details className="group mt-4">
@@ -77,6 +80,7 @@ export default async function AgendaPage({ searchParams }: { searchParams: Promi
         <ReminderList
           reminders={shown}
           meetings={filter === "all" ? meetings : []}
+          briefs={briefs}
           empty={
             filter === "theirs"
               ? "Nobody owes you anything right now. When someone promises you something, ISA tracks it here."
@@ -87,8 +91,30 @@ export default async function AgendaPage({ searchParams }: { searchParams: Promi
         />
       </div>
 
-      {done.length ? (
+      {snoozed.length ? (
         <details className="mt-8">
+          <summary className="cursor-pointer text-sm text-muted hover:text-ink">Snoozed · {snoozed.length}</summary>
+          <ul className="mt-2 space-y-1">
+            {snoozed.map((r) => (
+              <li key={r.id} className="flex items-center justify-between gap-3 px-1 text-sm text-muted">
+                <span className="min-w-0 truncate">
+                  {r.text}
+                  {r.person ? ` · ${r.direction === "theirs" ? "←" : "→"} ${r.person}` : ""}
+                  {r.snoozedUntil ? ` · back ${r.snoozedUntil.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" })}` : ""}
+                </span>
+                <form action={snooze}>
+                  <input type="hidden" name="id" value={r.id} />
+                  <input type="hidden" name="days" value="0" />
+                  <button className="flex-none text-xs hover:text-ink">Bring back</button>
+                </form>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+
+      {done.length ? (
+        <details className={snoozed.length ? "mt-3" : "mt-8"}>
           <summary className="cursor-pointer text-sm text-muted hover:text-ink">Done this week · {done.length}</summary>
           <ul className="mt-2 space-y-1">
             {done.map((r) => (

@@ -2,7 +2,9 @@ import Link from "next/link";
 import { agendaDays, meetingTime, type AgendaMeeting } from "@/lib/agenda";
 import { dayKey, type ReminderRow } from "@/lib/reminders";
 import { sourceOf } from "@/lib/sources";
-import { reminderStatus } from "@/app/(app)/reminders/actions";
+import { reminderStatus, snooze } from "@/app/(app)/reminders/actions";
+import type { Brief } from "@/lib/brief";
+import { BeforeAfter } from "@/components/Chip";
 
 const TONE = { danger: "text-danger", warn: "text-warn", ink: "text-ink", muted: "text-muted" } as const;
 
@@ -20,11 +22,14 @@ const longDay = (d: Date) => new Date(`${dayKey(d)}T12:00:00Z`).toLocaleDateStri
 export function ReminderList({
   reminders,
   meetings = [],
+  briefs = {},
   showProject = true,
   empty = "Nothing to remember. When someone promises to send something in a meeting, email or Slack, ISA adds it here.",
 }: {
   reminders: ReminderRow[];
   meetings?: AgendaMeeting[];
+  /** The brief for each meeting, by meeting id. */
+  briefs?: Record<string, Brief>;
   showProject?: boolean;
   empty?: string;
 }) {
@@ -42,18 +47,8 @@ export function ReminderList({
           </h3>
           <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface">
             {day.meetings.map((m) => (
-              <li key={m.id}>
-                <Link href="/meetings" className="flex items-center gap-2.5 bg-bg px-3 py-2 text-sm hover:bg-hover">
-                  <span className="w-[18px] flex-none text-center text-xs text-muted" aria-hidden="true">
-                    ●
-                  </span>
-                  <span className="flex-none text-xs tabular-nums text-muted">{meetingTime(m.at)}</span>
-                  <span className="min-w-0 flex-1 truncate">
-                    <span className="font-medium">{m.title}</span>
-                    <span className="text-muted"> · ISA Notetaker joins</span>
-                  </span>
-                  <span className="hidden flex-none text-xs text-muted sm:inline">{sourceOf(m.platform).label}</span>
-                </Link>
+              <li key={m.id} id={`meeting-${m.id}`}>
+                <MeetingRow m={m} brief={briefs[m.id]} />
               </li>
             ))}
             {day.reminders.map((r) => (
@@ -113,6 +108,15 @@ export function ReminderList({
                       <button form={`dismiss-${r.id}`} className="hover:text-ink hover:underline">
                         Not needed
                       </button>
+                      <span className="flex items-center gap-2">
+                        Snooze
+                        <button form={`snooze-${r.id}`} name="days" value="1" className="rounded border border-line px-1.5 hover:bg-hover hover:text-ink">
+                          until tomorrow
+                        </button>
+                        <button form={`snooze-${r.id}`} name="days" value="7" className="rounded border border-line px-1.5 hover:bg-hover hover:text-ink">
+                          a week
+                        </button>
+                      </span>
                     </p>
                   </div>
                 </details>
@@ -120,11 +124,119 @@ export function ReminderList({
                   <input type="hidden" name="id" value={r.id} />
                   <input type="hidden" name="status" value="dismissed" />
                 </form>
+                <form id={`snooze-${r.id}`} action={snooze} className="hidden">
+                  <input type="hidden" name="id" value={r.id} />
+                </form>
               </li>
             ))}
           </ul>
         </section>
       ))}
     </div>
+  );
+}
+
+const label = "text-[11px] font-semibold uppercase tracking-wider text-muted";
+
+/**
+ * A meeting on the agenda. With a brief it opens to what to walk in knowing: what the owner owes
+ * the people in it, what they owe the owner, what is unsettled and what changed in their projects.
+ */
+function MeetingRow({ m, brief }: { m: AgendaMeeting; brief?: Brief }) {
+  const head = (
+    <>
+      <span className="w-[18px] flex-none text-center text-xs text-muted" aria-hidden="true">
+        ●
+      </span>
+      <span className="flex-none text-xs tabular-nums text-muted">{meetingTime(m.at)}</span>
+      <span className="min-w-0 flex-1 truncate">
+        <span className="font-medium">{m.title}</span>
+        <span className="text-muted">
+          {brief?.people.length ? ` · ${brief.people.slice(0, 3).join(", ")}${brief.people.length > 3 ? ` +${brief.people.length - 3}` : ""}` : ""}
+          {m.notetaker ? " · ISA Notetaker joins" : ""}
+        </span>
+      </span>
+      {m.platform ? <span className="hidden flex-none text-xs text-muted sm:inline">{sourceOf(m.platform).label}</span> : null}
+    </>
+  );
+  if (!brief || !brief.points) {
+    return (
+      <Link href="/meetings" className="flex items-center gap-2.5 bg-bg px-3 py-2 text-sm hover:bg-hover">
+        {head}
+      </Link>
+    );
+  }
+  const ask = `Brief me for the meeting "${m.title}"${brief.people.length ? ` with ${brief.people.join(", ")}` : ""}: what I owe them, what they owe me, what is unsettled, and three talking points.`;
+  return (
+    <details className="group bg-bg text-sm">
+      <summary className="flex cursor-pointer list-none items-center gap-2.5 px-3 py-2 hover:bg-hover">
+        {head}
+        <span className="flex-none rounded bg-accent-soft px-1.5 py-0.5 text-[11px] font-semibold text-accent">
+          Brief · {brief.points}
+          <span className="group-open:hidden"> ▾</span>
+        </span>
+      </summary>
+      <div className="space-y-3 border-t border-line bg-surface px-3 py-3 pl-[2.6rem]">
+        {brief.youOwe.length ? (
+          <section>
+            <h4 className={label}>You owe</h4>
+            <ul className="mt-1 space-y-0.5">
+              {brief.youOwe.map((r) => (
+                <li key={r.id}>
+                  {r.text} <span className="text-muted">→ {r.person}{r.due ? ` · due ${shortDay(r.due)}` : ""}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+        {brief.theyOwe.length ? (
+          <section>
+            <h4 className={label}>They owe you</h4>
+            <ul className="mt-1 space-y-0.5">
+              {brief.theyOwe.map((r) => (
+                <li key={r.id}>
+                  {r.text} <span className="text-muted">← {r.person}{r.due ? ` · due ${shortDay(r.due)}` : ""}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+        {brief.toSettle.length ? (
+          <section>
+            <h4 className={`${label} text-danger`}>To settle</h4>
+            <ul className="mt-1 space-y-0.5">
+              {brief.toSettle.map((t, i) => (
+                <li key={i}>
+                  {t.text} <span className="text-muted">· {t.projectName}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+        {brief.changed.length ? (
+          <section>
+            <h4 className={label}>Changed lately</h4>
+            <ul className="mt-1 space-y-0.5">
+              {brief.changed.map((c) => (
+                <li key={c.key}>
+                  {c.lead ? <span className="font-medium">{c.lead} </span> : null}
+                  {c.parts ? <BeforeAfter parts={c.parts} /> : c.text} <span className="text-muted">· {c.source}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+        <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+          <Link href={`/?c=${brief.projects.length === 1 ? brief.projects[0].id : "general"}&ask=${encodeURIComponent(ask)}`} className="text-accent hover:underline">
+            Ask ISA for talking points
+          </Link>
+          {brief.projects.map((p) => (
+            <Link key={p.id} href={`/?c=${p.id}`} className="text-accent hover:underline">
+              Open {p.name}
+            </Link>
+          ))}
+        </p>
+      </div>
+    </details>
   );
 }

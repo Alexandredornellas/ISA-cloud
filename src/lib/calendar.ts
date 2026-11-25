@@ -15,8 +15,39 @@ type CalendarEvent = {
   location?: string;
   description?: string;
   conferenceData?: { entryPoints?: { entryPointType?: string; uri?: string }[] };
-  attendees?: { self?: boolean; responseStatus?: string }[];
+  attendees?: { self?: boolean; responseStatus?: string; email?: string; displayName?: string; resource?: boolean }[];
 };
+
+export type CalendarMeeting = { key: string; title: string; at: Date; platform: string | null; attendees: { name: string | null; email: string | null }[] };
+
+/**
+ * The owner's timed meetings from three hours ago to seven days ahead, with who else is invited.
+ * Cancelled and declined ones are left out. Read-only: nothing is scheduled or changed.
+ */
+export async function calendarMeetings(google: Pick<GoogleClient, "get">, now = Date.now()): Promise<CalendarMeeting[]> {
+  const list = await google.get<{ items?: CalendarEvent[] }>(API, {
+    timeMin: new Date(now - 3 * 3_600_000).toISOString(),
+    timeMax: new Date(now + 7 * 24 * 3_600_000).toISOString(),
+    singleEvents: "true",
+    orderBy: "startTime",
+    maxResults: "60",
+  });
+  return (list.items ?? []).flatMap((e) => {
+    const start = e.start?.dateTime ? new Date(e.start.dateTime) : null;
+    const declined = e.attendees?.some((a) => a.self && a.responseStatus === "declined");
+    if (!start || e.status === "cancelled" || declined) return [];
+    const link = meetingLink(e);
+    return [
+      {
+        key: `${e.id}@${start.toISOString()}`,
+        title: e.summary || "Meeting",
+        at: start,
+        platform: link ? platformOf(link) : null,
+        attendees: (e.attendees ?? []).filter((a) => !a.self && !a.resource).map((a) => ({ name: a.displayName?.trim() || null, email: a.email?.toLowerCase() ?? null })),
+      },
+    ];
+  });
+}
 
 /** The first Zoom, Meet or Teams link in a calendar event. */
 export function meetingLink(e: CalendarEvent): string | null {
