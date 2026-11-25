@@ -154,6 +154,28 @@ export const proposals = pgTable(
   (t) => [index("proposals_status_idx").on(t.status)],
 );
 
+// Every version of a waiting suggestion: what it said, why it changed and what caused it. The
+// proposal's plan is always the current version; going back to an earlier one adds a new version.
+export const proposalVersions = pgTable(
+  "proposal_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    proposalId: uuid("proposal_id")
+      .notNull()
+      .references(() => proposals.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    plan: jsonb("plan").$type<Plan>().notNull(),
+    // drafted | new_items | correction | jira_project | restored
+    cause: text("cause").notNull(),
+    // Why it changed, in a sentence the owner reads.
+    reason: text("reason").notNull(),
+    // The items that caused it, for new_items.
+    eventIds: uuid("event_ids").array().notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("proposal_versions_proposal_version_idx").on(t.proposalId, t.version)],
+);
+
 // Log of every outside action ISA took, so the project timeline can show it.
 export const actions = pgTable("actions", {
   id: uuid("id").primaryKey().defaultRandom(),

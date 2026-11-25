@@ -4,6 +4,7 @@ import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { missingTypeQuestions, type MissingTypeQuestion } from "@/lib/queries";
 import type { Plan } from "@/lib/plan";
+import { cardVersions, versionChanges } from "@/lib/card-versions";
 import { getSettings, type Settings } from "@/lib/settings";
 import { openSprintNames } from "@/lib/jira-research";
 import { jiraKeyFor, jiraProjectChoices, type JiraProjectChoice } from "@/lib/jira-project";
@@ -67,6 +68,16 @@ export type Notification = {
    * text as the draft had it before, or "new" for a step the new information added.
    */
   redraft: Record<number, { summary: string; description: string } | "new">;
+  /** Every version of the card, oldest first, with what changed and why; empty when it never changed. */
+  versions: {
+    version: number;
+    at: Date;
+    cause: string;
+    reason: string;
+    summary: string;
+    changes: string[];
+    sources: { title: string; url: string | null; source: string }[];
+  }[];
   /** Jira projects a new ticket can go to, and where one goes when it names none. */
   jira: { projects: JiraProjectChoice[]; fallback: string | null; site: string | null };
 };
@@ -149,6 +160,7 @@ export async function notifications(channelId: string | null): Promise<Notificat
         .where(inArray(schema.events.id, eventIds))
     : [];
   const byId = new Map(events.map((e) => [e.id, e]));
+  const versions = await cardVersions(rows.filter((r) => r.status === "pending").map((r) => r.id));
   const questions = await missingTypeQuestions(rows);
   const projects = rows.some((r) => r.kind === "clarify")
     ? await db.select({ id: schema.projects.id, name: schema.projects.name }).from(schema.projects).orderBy(desc(schema.projects.updatedAt))
@@ -195,6 +207,15 @@ export async function notifications(channelId: string | null): Promise<Notificat
     asks,
     sprints,
     redraft: r.status === "pending" ? redraftOf(r.plan, r.previousPlan) : {},
+    versions: (versions.get(r.id) ?? []).map((v, i, all) => ({
+      version: v.version,
+      at: v.createdAt,
+      cause: v.cause,
+      reason: v.reason,
+      summary: v.plan.summary,
+      changes: i ? versionChanges(all[i - 1].plan, v.plan) : [],
+      sources: v.eventIds.flatMap((id) => (byId.has(id) ? [{ title: byId.get(id)!.title, url: byId.get(id)!.url, source: byId.get(id)!.source }] : [])),
+    })),
     jira: { projects: jiraProjects, fallback: fallbacks.get(r.projectId) ?? null, site: jiraSite },
     current: Object.fromEntries(
       r.plan.actions.flatMap((a) => (a.type === "jira_update" && a.issueKey && current[a.issueKey] ? [[a.issueKey, current[a.issueKey]]] : [])),

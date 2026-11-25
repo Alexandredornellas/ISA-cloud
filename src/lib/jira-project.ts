@@ -6,6 +6,7 @@ import { db, schema } from "@/db";
 import { jiraSearcher } from "@/lib/jira-research";
 import type { JiraClient } from "@/lib/jira";
 import type { Plan } from "@/lib/plan";
+import { saveCardVersion } from "@/lib/card-versions";
 
 export const JIRA_KEY = /^[A-Z][A-Z0-9_]{0,19}$/;
 
@@ -148,7 +149,8 @@ export async function adoptJiraProject(
     const out = moveToJiraProject(r.plan, key, previous);
     if (!out.moved && !r.plan.newJiraProject) continue;
     moved += out.moved;
-    await db.update(schema.proposals).set({ plan: out.plan, updatedAt: new Date() }).where(eq(schema.proposals.id, r.id));
+    const what = out.moved ? `, so ${out.moved === 1 ? "the step" : `the ${out.moved} steps`} going to ${previous ?? "the old project"} moved there` : "";
+    await saveCardVersion(r.id, r.plan, out.plan, { cause: "jira_project", reason: `You set ${key} as this project's Jira project${what}.` });
   }
   if (projectId) await setJiraKey(projectId, key);
   return { ok: true, key, moved };

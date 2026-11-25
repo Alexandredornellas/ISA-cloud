@@ -13,6 +13,8 @@ import { keepToProject, owners } from "@/lib/ownership";
 import { saveCommitments } from "@/lib/reminders";
 import { savePersonNotes } from "@/lib/people";
 import { recordMemory } from "@/lib/executor";
+import { saveCardVersion } from "@/lib/card-versions";
+import { sourceOf } from "@/lib/sources";
 
 /** Ask Claude for a draft plan, with ticket details only when the owner's settings ask for them. */
 async function draft(llm: StructuredLLM, req: { system: string; context: string; input: string; effort: "low" | "medium" | "high" }): Promise<Plan> {
@@ -234,6 +236,13 @@ export async function proposeUpdate(
   return row.id;
 }
 
+/** Why new items changed a card, naming each item's source and author (e.g. "Slack message from Ana"). */
+function newItemsReason(events: EventRow[]): string {
+  const one = (e: EventRow) => `${sourceOf(e.source).label}${e.author ? ` from ${e.author.replace(/\s*<.*>$/, "")}` : ""}`;
+  const names = [...new Set(events.map(one))];
+  return `New info arrived: ${names.slice(0, 3).join(", ")}${names.length > 3 ? ` and ${names.length - 3} more` : ""}.`;
+}
+
 /** Redraft a waiting suggestion with new items, keeping one card per project. */
 async function mergeIntoWaiting(
   waiting: typeof schema.proposals.$inferSelect,
@@ -264,10 +273,13 @@ async function mergeIntoWaiting(
     cleanPlan(waiting.kind === "new_project" ? { ...plan, projectName: plan.projectName || waiting.plan.projectName } : { ...plan, projectName: null }),
     projectId,
   );
-  await db
-    .update(schema.proposals)
-    .set({ plan: cleaned, previousPlan: waiting.plan, eventIds: [...waiting.eventIds, ...fresh.map((e) => e.id)], updatedAt: new Date() })
-    .where(eq(schema.proposals.id, waiting.id));
+  await saveCardVersion(
+    waiting.id,
+    waiting.plan,
+    cleaned,
+    { cause: "new_items", reason: newItemsReason(fresh), eventIds: fresh.map((e) => e.id) },
+    { eventIds: [...waiting.eventIds, ...fresh.map((e) => e.id)] },
+  );
   return waiting.id;
 }
 
@@ -387,15 +399,13 @@ export async function reviseProposal(proposalId: string, instruction: string, ll
   const cleaned = cleanPlan(
     proposal.kind === "new_project" ? { ...plan, projectName: plan.projectName || proposal.plan.projectName } : { ...plan, projectName: null },
   );
-  await db
-    .update(schema.proposals)
-    .set({
-      plan: cleaned,
-      previousPlan: proposal.plan,
-      title: proposal.kind === "new_project" ? `New project: ${cleaned.projectName}` : proposal.title,
-      updatedAt: new Date(),
-    })
-    .where(eq(schema.proposals.id, proposalId));
+  await saveCardVersion(
+    proposalId,
+    proposal.plan,
+    cleaned,
+    { cause: "correction", reason: `You asked ISA: "${instruction.trim().slice(0, 300)}"` },
+    { title: proposal.kind === "new_project" ? `New project: ${cleaned.projectName}` : proposal.title },
+  );
   return cleaned;
 }
 

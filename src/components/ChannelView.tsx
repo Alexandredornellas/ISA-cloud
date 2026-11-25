@@ -59,7 +59,7 @@ export function ChannelView({
           ) : null}
           {notifications.map((n) => (
             <NotificationCard
-              key={`${n.id}:${JSON.stringify(n.plan).length}`}
+              key={`${n.id}:${n.versions.length}:${JSON.stringify(n.plan).length}`}
               n={n}
               open={open === n.id}
               onToggle={() => setOpen(open === n.id ? null : n.id)}
