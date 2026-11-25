@@ -4,16 +4,17 @@ import { db, schema } from "@/db";
 import { chatTranscript } from "@/lib/brain/chat";
 import { channels, decisions, notifications } from "@/lib/channels";
 import { activity } from "@/lib/activity";
-import { ChannelView } from "@/components/ChannelView";
+import { ChannelView, type Conflict } from "@/components/ChannelView";
 import { Workspace, type PanelTab } from "@/components/Workspace";
 import { ActivityFeed } from "@/components/ActivityFeed";
 import { PeopleAndRules, RequirementList } from "@/components/ProjectPanels";
 import { defaultJiraKey, jiraProjectChoices, learnedJiraKey } from "@/lib/jira-project";
 import { pendingSuggestions, stakeholders } from "@/lib/people";
 import { clearChatMessages } from "./chat/actions";
-import { portfolio, projectHealth } from "@/lib/portfolio";
+import { portfolio, projectHealth, type ProjectHealth } from "@/lib/portfolio";
 import { Overview } from "@/components/Overview";
-import { decisionList, memoryStats } from "@/lib/trail";
+import { memoryStats } from "@/lib/trail";
+import { getSettings } from "@/lib/settings";
 import { openReminders } from "@/lib/reminders";
 import { ReminderList } from "@/components/ReminderList";
 
@@ -26,13 +27,23 @@ const PROJECT_EXAMPLES = [
   "Draw the main user flow",
 ];
 
+/**
+ * A project's conflicts and late promises as rows for its "Needs you" list. Drafts and failed
+ * steps are left out here: each already has its own card.
+ */
+function conflictRows(health: ProjectHealth | null): Conflict[] {
+  return (health?.risks ?? [])
+    .filter((r) => r.kind === "drift" || r.kind === "overdue" || r.kind === "no_ticket")
+    .map((r) => ({ chip: r.kind === "drift" ? "Conflict" : r.kind === "overdue" ? "Overdue" : "No ticket", tone: r.kind === "no_ticket" ? ("warn" as const) : ("danger" as const), text: r.text }));
+}
+
 /** ISA's home: Ask ISA (general) or one project, with what needs you, the chat, and a side panel. */
 export default async function HomePage({ searchParams }: PageProps<"/">) {
   const { c, ask, send } = await searchParams;
   const all = await channels();
   if (!c && typeof ask !== "string") {
-    const [{ projects, reminders }, feed, stats, recent] = await Promise.all([portfolio(), activity(null, 12), memoryStats(), decisionList({ limit: 5 })]);
-    return <Overview projects={projects} reminders={reminders} feed={feed} generalCount={all[0].count} stats={stats} recent={recent} />;
+    const [{ projects, reminders }, feed, stats, settings] = await Promise.all([portfolio(), activity(null, 10), memoryStats(), getSettings()]);
+    return <Overview projects={projects} reminders={reminders} feed={feed} generalCount={all[0].count} stats={stats} name={settings.ownerName} />;
   }
   const current = (typeof c === "string" && all.find((ch) => ch.id === c)) || all[0];
   const projectId = current.id;
@@ -66,12 +77,15 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
   const open = requirements.filter((r) => r.status !== "done" && r.status !== "dropped").length;
   const tickets = requirements.filter((r) => r.jiraIssueKey).length;
 
+  const conflicts = conflictRows(health);
+  const waiting = notes.length + conflicts.length;
+
   const tabs: PanelTab[] = [
     { id: "activity", label: "Activity", icon: "clock", content: <ActivityFeed entries={feed} showProject={!projectId} /> },
     ...(project
       ? [
           { id: "requirements", label: "Requirements", icon: "list" as const, count: open, content: <RequirementList requirements={requirements} projectId={project.id} jira={{ key: project.jiraProjectKey, fallback: jiraFallback, choices: jiraChoices }} /> },
-          { id: "reminders", label: "Reminders", icon: "bell" as const, count: reminders.length, content: <ReminderList reminders={reminders} showProject={false} compact /> },
+          { id: "reminders", label: "Agenda", icon: "bell" as const, count: reminders.length, content: <ReminderList reminders={reminders} showProject={false} /> },
           { id: "people", label: "People", icon: "users" as const, count: suggested.length || undefined, content: <PeopleAndRules projectId={project.id} people={team} suggestions={suggested} names={everyone.map((p) => p.name)} rules={rules} /> },
         ]
       : []),
@@ -97,8 +111,8 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
         <>
           {project.summary ? <p className="mt-1 line-clamp-2 text-sm text-muted">{project.summary}</p> : null}
           <p className="mt-2 flex flex-wrap gap-2 text-xs">
-            <span className={`rounded-full px-2 py-0.5 ${notes.length ? "bg-warn/15 font-medium text-warn" : "bg-ok/15 text-ok"}`}>
-              {notes.length ? `${notes.length} need${notes.length === 1 ? "s" : ""} you` : "Up to date"}
+            <span className={`rounded-full px-2 py-0.5 ${waiting ? "bg-warn/15 font-medium text-warn" : "bg-ok/15 text-ok"}`}>
+              {waiting ? `${waiting} need${waiting === 1 ? "s" : ""} you` : "Up to date"}
             </span>
             {health?.status === "at_risk" ? <span className="rounded-full bg-danger/15 px-2 py-0.5 font-medium text-danger">At risk</span> : null}
             <span className="rounded-full bg-hover px-2 py-0.5 text-muted">
@@ -108,16 +122,6 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
               {tickets} Jira ticket{tickets === 1 ? "" : "s"}
             </span>
           </p>
-          {health?.risks.length ? (
-            <ul className="mt-3 space-y-1 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-sm">
-              {health.risks.map((r, i) => (
-                <li key={i} className="flex gap-2">
-                  <span aria-hidden="true" className="text-danger">●</span>
-                  <span>{r.text}</span>
-                </li>
-              ))}
-            </ul>
-          ) : null}
         </>
       ) : (
         <p className="mt-1 text-sm text-muted">Ask anything across your projects: status, risks, who owes what, what was decided and why. Items ISA can&apos;t place in a project wait here.</p>
@@ -136,6 +140,7 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
           projectId={projectId}
           name={current.name}
           notifications={notes}
+          conflicts={conflicts}
           messages={messages}
           examples={projectId ? PROJECT_EXAMPLES : undefined}
           initial={typeof ask === "string" ? ask : ""}

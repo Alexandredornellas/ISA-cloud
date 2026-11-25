@@ -1,8 +1,10 @@
-import type { ActivityEntry } from "@/lib/activity";
+import { changeParts, type ActivityEntry } from "@/lib/activity";
 import { fullTime, sourceOf, timeAgo } from "@/lib/sources";
 import { SourceMark } from "@/components/SourceMark";
 import { SubmitButton } from "@/components/SubmitButton";
 import { redraftItem } from "@/app/(app)/projects/[id]/actions";
+import { BeforeAfter } from "@/components/Chip";
+import { Fresh, NewDot } from "@/components/Fresh";
 
 const RELATION: Record<string, string> = {
   new: "New requirement",
@@ -57,21 +59,27 @@ export function ActivityFeed({ entries, showProject = false }: { entries: Activi
 
 function JiraRow({ e, showProject }: { e: Extract<ActivityEntry, { kind: "jira" }>; showProject: boolean }) {
   return (
-    <div className="flex gap-2.5 rounded-lg px-1 py-1.5 text-sm">
+    <Fresh at={e.at} className="flex items-center gap-2 rounded-lg px-1 py-1.5 text-sm">
       <SourceMark source="jira" size="sm" />
-      <div className="min-w-0 flex-1">
-        <p className="flex items-baseline justify-between gap-2">
-          <a href={e.url} target="_blank" rel="noreferrer" className="font-medium hover:underline">
-            {e.key}
-          </a>
-          <time className="flex-none text-xs text-muted" title={fullTime(e.at)}>
-            {timeAgo(e.at)}
-          </time>
-        </p>
-        <p className="text-muted">{e.text}</p>
-        {showProject && e.projectName ? <p className="text-xs text-muted">{e.projectName}</p> : null}
-      </div>
-    </div>
+      <p className="min-w-0 flex-1 group-data-[new=true]/fresh:font-medium">
+        <a href={e.url} target="_blank" rel="noreferrer" className="font-semibold hover:underline">
+          {e.key}
+        </a>{" "}
+        {e.change ? (
+          <>
+            <span className="text-muted">{e.change.subject} </span>
+            <BeforeAfter parts={changeParts(e.change)} />
+          </>
+        ) : (
+          <span className="text-muted">description edited by {e.author ?? "someone"}</span>
+        )}
+        {showProject && e.projectName ? <span className="block text-xs font-normal text-muted">{e.projectName}</span> : null}
+      </p>
+      <NewDot />
+      <time className="flex-none text-xs text-muted" title={fullTime(e.at)}>
+        {timeAgo(e.at)}
+      </time>
+    </Fresh>
   );
 }
 
@@ -81,34 +89,41 @@ function ItemRow({ e, showProject }: { e: Extract<ActivityEntry, { kind: "item" 
   const outcome = latest ? OUTCOME[latest.status] : null;
   return (
     <details className="group rounded-lg px-1 py-1.5 text-sm open:bg-bg">
-      <summary className="flex cursor-pointer list-none gap-2.5">
-        <SourceMark source={e.source} size="sm" />
-        <div className="min-w-0 flex-1">
-          <p className="flex items-baseline justify-between gap-2">
-            <span className="truncate font-medium">{e.title}</span>
-            <time className="flex-none text-xs text-muted" title={fullTime(e.at)}>
-              {timeAgo(e.at)}
-            </time>
-          </p>
-          <p className="text-xs text-muted">
-            {src.label}
-            {e.author ? ` · ${e.author}` : ""} · {RELATION[e.relation] ?? e.relation}
-            {showProject && e.projectName ? ` · ${e.projectName}` : ""}
-          </p>
-          {e.note ? <p className="mt-1 line-clamp-3 text-muted group-open:line-clamp-none">{e.note}</p> : null}
-          {outcome ? (
-            <p className="mt-1.5 flex items-center gap-2 text-xs">
-              <span className={`rounded px-1.5 py-0.5 font-medium ${outcome.style}`}>{outcome.label}</span>
-              <span className="text-muted">
-                {latest.steps.length} step{latest.steps.length === 1 ? "" : "s"}
-                <span className="group-open:hidden"> · details</span>
+      <summary className="cursor-pointer list-none">
+        <Fresh at={e.at} className="flex gap-2">
+          <SourceMark source={e.source} size="sm" />
+          <div className="min-w-0 flex-1">
+            <p className="flex items-start justify-between gap-2">
+              <span className="line-clamp-2 min-w-0 flex-1 font-medium group-open:line-clamp-none group-data-[new=true]/fresh:font-semibold">
+                {e.change ? (
+                  <>
+                    {e.change.subject ? <span>{e.change.subject} </span> : null}
+                    <BeforeAfter parts={changeParts(e.change)} />
+                  </>
+                ) : (
+                  e.title
+                )}
               </span>
+              <NewDot />
+              <time className="flex-none text-xs font-normal text-muted" title={fullTime(e.at)}>
+                {timeAgo(e.at)}
+              </time>
             </p>
-          ) : null}
-        </div>
+            <p className="flex flex-wrap items-center gap-x-1.5 text-xs text-muted">
+              <span>
+                {e.change ? `${e.title} · ` : ""}
+                {src.label}
+                {e.author ? ` · ${e.author}` : ""} · {RELATION[e.relation] ?? e.relation}
+                {showProject && e.projectName ? ` · ${e.projectName}` : ""}
+              </span>
+              {outcome ? <span className={`rounded px-1.5 py-px font-medium ${outcome.style}`}>{outcome.label}</span> : null}
+            </p>
+          </div>
+        </Fresh>
       </summary>
 
-      <div className="mt-2 space-y-3 pl-[34px]">
+      <div className="mt-2 space-y-3 pl-8">
+        {e.note ? <p className="text-muted">{e.note}</p> : null}
         {e.outcomes.map((o) => (
           <div key={o.id} className="rounded-lg border border-line bg-surface p-3">
             <p className="text-xs text-muted">{o.summary}</p>
