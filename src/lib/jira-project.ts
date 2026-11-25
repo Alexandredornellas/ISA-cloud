@@ -99,14 +99,16 @@ export async function jiraProjectChoices(fresh = false): Promise<JiraProjectChoi
 }
 
 /**
- * The plan with the tickets that waited for the suggested new Jira project moved to `key`, the
- * project the owner created (or chose instead). The suggestion is then settled.
+ * The plan with its tickets moved to `key`: those waiting for the suggested new Jira project, and
+ * those going to `previous`, the ISA project's Jira project before the owner changed it. Tickets
+ * on "" follow the project's setting anyway; tickets ISA sent elsewhere stay. Any suggestion of a
+ * new Jira project is then settled.
  */
-export function moveToJiraProject(plan: Plan, key: string): { plan: Plan; moved: number } {
-  const from = plan.newJiraProject?.key;
+export function moveToJiraProject(plan: Plan, key: string, previous: string | null = null): { plan: Plan; moved: number } {
+  const from = new Set([plan.newJiraProject?.key, previous].filter((k): k is string => !!k && k !== key));
   let moved = 0;
   const actions = plan.actions.map((a) => {
-    if (a.type !== "jira_create" || !from || a.jiraProject !== from) return a;
+    if (a.type !== "jira_create" || !a.jiraProject || !from.has(a.jiraProject)) return a;
     moved++;
     return { ...a, jiraProject: key };
   });
@@ -114,9 +116,10 @@ export function moveToJiraProject(plan: Plan, key: string): { plan: Plan; moved:
 }
 
 /**
- * The owner created the suggested Jira project (or picked another): check Jira can see it, move the
- * waiting tickets of this suggestion (or, without one, of every waiting suggestion in the project)
- * there, and make it the ISA project's Jira project. Nothing is sent to Jira.
+ * The owner created the suggested Jira project, or chose another for an ISA project: check Jira can
+ * see it, make it the ISA project's Jira project, and move the waiting suggestions' tickets that
+ * were going to the old one (or waiting for the new one) there. Only ISA's drafts change; nothing is
+ * sent to Jira, and no AI call is needed.
  */
 export async function adoptJiraProject(
   raw: string,
@@ -128,6 +131,12 @@ export async function adoptJiraProject(
   if (known.length && !known.some((p) => p.key === key)) {
     return { ok: false, error: `ISA can't see a Jira project ${key} yet. Create it in Jira first, or check the key.` };
   }
+  let projectId: string | null = "projectId" in where ? where.projectId : null;
+  if ("proposalId" in where) {
+    const p = await db.query.proposals.findFirst({ where: eq(schema.proposals.id, where.proposalId), columns: { projectId: true } });
+    projectId = p?.projectId ?? null;
+  }
+  const previous = projectId ? await jiraKeyFor(projectId) : defaultJiraKey();
   const rows = await db.query.proposals.findMany({
     where:
       "proposalId" in where
@@ -135,12 +144,10 @@ export async function adoptJiraProject(
         : and(eq(schema.proposals.projectId, where.projectId), eq(schema.proposals.status, "pending")),
   });
   let moved = 0;
-  let projectId = "projectId" in where ? where.projectId : null;
   for (const r of rows) {
-    if (!r.plan.newJiraProject) continue;
-    const out = moveToJiraProject(r.plan, key);
+    const out = moveToJiraProject(r.plan, key, previous);
+    if (!out.moved && !r.plan.newJiraProject) continue;
     moved += out.moved;
-    projectId ??= r.projectId;
     await db.update(schema.proposals).set({ plan: out.plan, updatedAt: new Date() }).where(eq(schema.proposals.id, r.id));
   }
   if (projectId) await setJiraKey(projectId, key);

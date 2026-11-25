@@ -374,6 +374,7 @@ export async function reviseProposal(proposalId: string, instruction: string, ll
         ? `The project:\n${await projectBlock(proposal.projectId)}`
         : `This is a new project. Suggested name: ${proposal.plan.projectName ?? ""}`,
       termsOf(events),
+      proposal.projectId,
     ),
     input: [
       `New items:\n${events.map(eventText).join("\n\n") || "(none)"}`,

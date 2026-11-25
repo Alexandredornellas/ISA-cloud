@@ -106,6 +106,8 @@ async function runChat(text: string, messages: BetaMessageParam[], projectId: st
         try {
           return await t.run(args as never);
         } catch (err) {
+          // Kind and status only: messages can carry the owner's content.
+          console.error("chat tool failed", { tool: t.name, error: errorKind(err) });
           return `Failed: ${err instanceof Error ? err.message : "unknown error"}`;
         }
       },

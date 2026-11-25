@@ -259,7 +259,7 @@ export function NotificationCard({
                   s={suggested}
                   site={n.jira.site}
                   count={projects.filter((p) => p === suggested.key).length}
-                  onMoved={(key) => setProjects((ps) => ps.map((p) => (p === suggested.key ? key : p)))}
+                  onMoved={(key) => setProjects((ps) => ps.map((p) => (p && (p === suggested.key || p === n.jira.fallback) ? key : p)))}
                 />
               ) : null}
 
