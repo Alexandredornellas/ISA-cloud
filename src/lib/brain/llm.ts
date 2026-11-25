@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import type { z } from "zod";
+import { log, traced } from "@/lib/log";
 
 export const MODEL = "claude-opus-5-5";
 
@@ -20,8 +21,11 @@ export class RefusalError extends Error {}
 
 let client: Anthropic | null = null;
 
-export const claudeStructured: StructuredLLM = async ({ system, context, input, schema, effort }) => {
+export const claudeStructured: StructuredLLM = (req) => traced("claude", `structured ${req.effort}`, () => structuredCall(req));
+
+const structuredCall: StructuredLLM = async ({ system, context, input, schema, effort }) => {
   client ??= new Anthropic();
+  const started = Date.now();
   const response = await client.beta.messages.parse({
     model: MODEL,
     max_tokens: 16000,
@@ -41,6 +45,18 @@ export const claudeStructured: StructuredLLM = async ({ system, context, input, 
     output_config: { effort, format: betaZodOutputFormat(schema) },
   });
 
+  // Sizes and timing only, never the prompt or the answer.
+  log.info("claude structured call", {
+    effort,
+    ms: Date.now() - started,
+    stopReason: response.stop_reason,
+    model: response.model,
+    inputTokens: response.usage?.input_tokens,
+    outputTokens: response.usage?.output_tokens,
+    cacheReadTokens: response.usage?.cache_read_input_tokens ?? undefined,
+    contextChars: context.length,
+    inputChars: input.length,
+  });
   if (response.stop_reason === "refusal") {
     throw new RefusalError("Claude declined this item");
   }

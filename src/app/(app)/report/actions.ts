@@ -1,6 +1,7 @@
 "use server";
 
 import type { Audience, Report } from "@/lib/brain/report";
+import { log } from "@/lib/log";
 
 export type ReportState = { report: Report | null; error: string | null; audience: Audience; projectId: string };
 
@@ -14,7 +15,7 @@ export async function draftStatusReport(_prev: ReportState, form: FormData): Pro
     const report = await draftReport(claudeStructured, audience, projectId || null);
     return { report, error: null, audience, projectId };
   } catch (err) {
-    console.error("status report failed", { error: err instanceof Error ? err.name : "unknown" });
+    log.error("status report failed", err);
     return { report: null, error: err instanceof Error ? err.message : "ISA could not write the report.", audience, projectId };
   }
 }

@@ -9,6 +9,7 @@ import { openSprintNames } from "@/lib/jira-research";
 import { jiraKeyFor, jiraProjectChoices, type JiraProjectChoice } from "@/lib/jira-project";
 import { jiraSearcher } from "@/lib/jira-research";
 import type { JiraClient } from "@/lib/jira";
+import { log } from "@/lib/log";
 
 export type Channel = { id: string | null; name: string; count: number; done: boolean };
 
@@ -116,7 +117,7 @@ async function currentTickets(keys: string[]): Promise<Record<string, { summary:
       }
     }
   } catch (err) {
-    console.error("jira current text failed", { error: err instanceof Error ? err.name : "unknown" });
+    log.error("jira current text failed", err);
   }
   const missing = stale.filter((k) => !out[k]);
   if (missing.length) {

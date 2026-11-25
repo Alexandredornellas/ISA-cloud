@@ -11,6 +11,7 @@ import { scheduleCalendarBots } from "@/lib/calendar";
 import { syncJira, type JiraReader } from "@/lib/jira-sync";
 import { trackJira, type JiraTracker } from "@/lib/jira-track";
 import { reviewJiraChanges } from "@/lib/jira-review";
+import { log } from "@/lib/log";
 
 export type WorkerDeps = {
   recall: RecallClient | null;
@@ -31,7 +32,9 @@ export type WorkerDeps = {
  */
 export async function tick(deps: WorkerDeps) {
   const every = (n: number) => deps.pass === undefined || deps.pass % n === 0;
-  const google = deps.google && every(3) && (await GoogleClient.connection()) ? deps.google : null;
+  const started = Date.now();
+  const google =
+    deps.google && every(3) && (await GoogleClient.connection().catch(logFailure("google connection", null))) ? deps.google : null;
   const transcripts = deps.recall ? await pollBots(deps.recall).catch(logFailure("bot")) : 0;
   const slack = deps.slack && every(3) ? await pollSlack(deps.slack).catch(logFailure("slack")) : 0;
   const email = google ? await pollGmail(google).catch(logFailure("gmail")) : 0;
@@ -49,14 +52,20 @@ export async function tick(deps: WorkerDeps) {
           .then(async (r) => (deps.llm ? (await reviewJiraChanges(r.changes, deps.llm)).length : r.changes.length))
           .catch(logFailure("jira-track"))
       : 0;
-  const processed = deps.llm ? await processNewEvents(deps.llm) : 0;
-  return { transcripts, slack, email, meetings, jira, ticketChanges, processed };
+  const processed = deps.llm ? await processNewEvents(deps.llm).catch(logFailure("events")) : 0;
+  const result = { transcripts, slack, email, meetings, jira, ticketChanges, processed };
+  const ms = Date.now() - started;
+  // A line per pass that did something, so the logs show data arriving; quiet passes stay quiet.
+  if (Object.values(result).some((n) => n > 0)) log.info("worker pass", { pass: deps.pass, ms, ...result });
+  else log.debug("worker pass idle", { pass: deps.pass, ms });
+  if (ms > 60_000) log.warn("worker pass slow", { pass: deps.pass, ms });
+  return result;
 }
 
-function logFailure(what: string) {
-  return (err: unknown) => {
-    console.error(`${what} poll failed`, { error: err instanceof Error ? err.name : "unknown" });
-    return 0;
+function logFailure<T = number>(what: string, fallback: T = 0 as T) {
+  return (err: unknown): T => {
+    log.error(`${what} poll failed`, err, { source: what });
+    return fallback;
   };
 }
 
@@ -92,14 +101,17 @@ export async function pollBots(recall: RecallClient): Promise<number> {
           .set({ status: "done", eventId: event?.id ?? null, error: null, updatedAt: new Date() })
           .where(eq(schema.meetingBots.id, bot.id));
         stored += 1;
+        log.info("meeting transcript stored", { botId: bot.id, eventId: event?.id ?? null, segments: segments.length, speakers: speakers.length, empty: !text });
       } else if (state.status !== bot.status || state.detail !== bot.error) {
+        log.info("meeting bot status changed", { botId: bot.id, platform: bot.platform, from: bot.status, to: state.status });
+        if (state.status === "failed") log.warn("meeting bot failed", { botId: bot.id, platform: bot.platform, detail: state.detail?.slice(0, 120) ?? null });
         await db
           .update(schema.meetingBots)
           .set({ status: state.status, error: state.detail, updatedAt: new Date() })
           .where(eq(schema.meetingBots.id, bot.id));
       }
     } catch (err) {
-      console.error("bot poll failed", { botId: bot.id, error: err instanceof Error ? err.name : "unknown" });
+      log.error("bot poll failed", err, { botId: bot.id, botStatus: bot.status });
     }
   }
   return stored;
@@ -118,8 +130,9 @@ export async function processNewEvents(llm: StructuredLLM): Promise<number> {
     try {
       await processEvent(id, llm);
       done += 1;
-    } catch (err) {
-      console.error("event processing failed", { eventId: id, error: err instanceof Error ? err.name : "unknown" });
+    } catch {
+      // processEvent logged the details; this line ties the failure to the worker pass.
+      log.warn("event left failed", { eventId: id });
     }
   }
   return done;

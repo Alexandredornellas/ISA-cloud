@@ -1,7 +1,8 @@
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Person } from "@/lib/plan";
-import { SlackError, type SlackClient, type SlackConversation, type SlackMessage } from "@/lib/slack";
+import { type SlackClient, type SlackConversation, type SlackMessage } from "@/lib/slack";
+import { log } from "@/lib/log";
 
 type Reader = Pick<SlackClient, "conversations" | "history" | "replies" | "user">;
 
@@ -86,7 +87,7 @@ export async function pollSlack(slack: Reader, now = Date.now()): Promise<number
       }
       cursors[conv.id] = maxTs.toFixed(6);
     } catch (err) {
-      console.error("slack poll failed", { channel: conv.id, error: err instanceof SlackError ? err.message : err instanceof Error ? err.name : "unknown" });
+      log.error("slack poll failed", err, { channel: conv.id });
     }
   }
 

@@ -4,11 +4,12 @@ import { revalidatePath } from "next/cache";
 import { claudeStructured } from "@/lib/brain/llm";
 import { alsoFileEvent, confirmClarification, placeClarification, processEvent, refileEvent } from "@/lib/brain/pipeline";
 import { ignoreEvent, unfileEvent } from "@/lib/intake";
+import { log } from "@/lib/log";
 
 const str = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
 
 function fail(err: unknown, what: string) {
-  console.error(`intake ${what} failed`, { error: err instanceof Error ? err.name : "unknown" });
+  log.error(`intake ${what} failed`, err);
 }
 
 /** "Yes, it's about X." */

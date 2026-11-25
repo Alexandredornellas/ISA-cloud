@@ -1,5 +1,6 @@
 import { JiraClient, jiraConfigFromEnv, type FoundTicket } from "@/lib/jira";
 import { owners } from "@/lib/ownership";
+import { log } from "@/lib/log";
 
 export type JiraSearcher = Pick<JiraClient, "searchText">;
 
@@ -68,7 +69,7 @@ export async function relatedTicketsBlock(terms: string[], projectId: string | n
     };
     return `Related tickets already in Jira (ISA searched for the item's topics):\n${await researchJira(jira, terms, 8, note)}`;
   } catch (err) {
-    console.error("jira research failed", { error: err instanceof Error ? err.name : "unknown" });
+    log.error("jira research failed", err);
     return "";
   }
 }
@@ -87,7 +88,7 @@ export async function openSprintNames(jiraKey?: string | null): Promise<string[]
     sprintCache.set(key, { at: Date.now(), names });
     return names;
   } catch (err) {
-    console.error("jira sprints failed", { error: err instanceof Error ? err.name : "unknown" });
+    log.error("jira sprints failed", err);
     return [];
   }
 }

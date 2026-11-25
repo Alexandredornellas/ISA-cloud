@@ -1,5 +1,6 @@
 import { revalidatePath } from "next/cache";
 import { sendChat } from "@/lib/brain/chat";
+import { log } from "@/lib/log";
 
 // The chat runs here, not as a server action: a pending server action holds up page navigation,
 // so the app froze while ISA was thinking. A plain request lets the owner move around meanwhile.
@@ -15,7 +16,7 @@ export async function POST(request: Request) {
   try {
     await sendChat(text, uuid(body.projectId), uuid(body.proposalId));
   } catch (err) {
-    console.error("chat failed", { error: err instanceof Error ? err.name : "unknown", status: (err as { status?: number })?.status ?? null });
+    log.error("chat failed", err);
     return Response.json({ error: "ISA could not answer. Check the Anthropic key on the Connections page and try again." });
   }
   revalidatePath("/", "layout");

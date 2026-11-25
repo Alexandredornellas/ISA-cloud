@@ -7,6 +7,7 @@ import { importPage } from "@/lib/confluence";
 import { db, schema } from "@/db";
 import { RecallClient, platformOf, recallConfigFromEnv } from "@/lib/recall";
 import { botAlreadyFor, leaveMeeting } from "@/lib/meeting-bots";
+import { log } from "@/lib/log";
 
 export type SendBotState = { error: string | null; ok: boolean };
 
@@ -52,7 +53,7 @@ export async function leaveMeetingAction(form: FormData) {
   try {
     await leaveMeeting(String(form.get("id") ?? ""), new RecallClient(recallConfigFromEnv()));
   } catch (err) {
-    console.error("leave meeting failed", { error: err instanceof Error ? err.name : "unknown" });
+    log.error("leave meeting failed", err);
   }
   revalidatePath("/", "layout");
 }

@@ -3,6 +3,7 @@ import { db, schema } from "@/db";
 import type { GoogleClient } from "@/lib/google";
 import { platformOf, type RecallClient } from "@/lib/recall";
 import { botAlreadyFor } from "@/lib/meeting-bots";
+import { log } from "@/lib/log";
 
 const API = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
 const LOOK_AHEAD_MS = 24 * 3_600_000;
@@ -111,7 +112,7 @@ export async function scheduleCalendarBots(google: Pick<GoogleClient, "get" | "s
       });
       scheduled += 1;
     } catch (err) {
-      console.error("calendar bot failed", { error: err instanceof Error ? err.name : "unknown" });
+      log.error("calendar bot failed", err);
     }
   }
   return scheduled;

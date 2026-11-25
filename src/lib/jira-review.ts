@@ -4,6 +4,7 @@ import { proposeUpdate } from "@/lib/brain/pipeline";
 import type { StructuredLLM } from "@/lib/brain/llm";
 import { jiraBrowseUrl } from "@/lib/jira";
 import type { TrackedChange } from "@/lib/jira-track";
+import { log } from "@/lib/log";
 
 // Changes that alter what a ticket asks for. Status, assignee and sprint moves are only logged.
 const CONTENT_FIELDS = new Set(["summary", "description"]);
@@ -55,7 +56,7 @@ export async function reviewJiraChanges(changes: TrackedChange[], llm: Structure
       const id = await proposeUpdate(first.projectId!, [event], llm);
       if (id) drafted.push(id);
     } catch (err) {
-      console.error("jira review failed", { key: first.key, error: err instanceof Error ? err.name : "unknown" });
+      log.error("jira review failed", err, { key: first.key });
     }
   }
   return drafted;

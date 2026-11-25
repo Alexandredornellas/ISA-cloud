@@ -7,6 +7,7 @@ import { db, schema } from "@/db";
 import { chatTools } from "./chat-tools";
 import { projectBlock } from "./context";
 import { claudeStructured, MODEL } from "./llm";
+import { log } from "@/lib/log";
 
 const CHAT_SYSTEM = `You are ISA, the owner's project context keeper, built on Claude. The owner is a business analyst, product owner or project manager running several projects. ISA sweeps everything they can access (meeting transcripts, Slack, email, Confluence pages, Jira) into one memory per project: the requirements, the decisions and why they were made, who said what and where, and who knows what. You are how the owner uses that memory: you answer questions with sources, help them decide, and create things from the context (epics, user stories with acceptance criteria, diagrams, status reports). The owner stays in charge: nothing reaches Jira, Slack or email until they approve it. In this chat you are also a full assistant: answer any question the way Claude would, with real reasoning and expertise.
 
@@ -28,12 +29,18 @@ How to work:
 /** Send the owner's message to ISA, run any tools it uses, and store the conversation. Returns ISA's reply. */
 export async function sendChat(text: string, projectId: string | null = null, proposalId: string | null = null): Promise<string> {
   const history = await db.query.chatMessages.findMany({ where: inChat(projectId), orderBy: asc(schema.chatMessages.createdAt) });
+  const ctx = { projectId, proposalId, historyMessages: history.length };
   try {
     return await runChat(text, replayable(history), projectId, proposalId);
   } catch (err) {
     // A stored conversation the API no longer accepts must not lock the chat: retry with its text only.
-    console.error("chat failed, retrying with text only", { error: errorKind(err) });
-    return await runChat(text, textOnly(history), projectId, proposalId);
+    log.warn("chat failed, retrying with text only", { ...ctx, kind: errorKind(err) }, err);
+    try {
+      return await runChat(text, textOnly(history), projectId, proposalId);
+    } catch (again) {
+      log.error("chat failed after text-only retry", again, ctx);
+      throw again;
+    }
   }
 }
 
@@ -103,9 +110,13 @@ async function runChat(text: string, messages: BetaMessageParam[], projectId: st
       description: t.description,
       inputSchema: t.inputSchema,
       run: async (args: unknown) => {
+        const started = Date.now();
         try {
-          return await t.run(args as never);
+          const result = await t.run(args as never);
+          log.debug("chat tool ok", { tool: t.name, ms: Date.now() - started });
+          return result;
         } catch (err) {
+          log.warn("chat tool failed", { tool: t.name, ms: Date.now() - started, projectId }, err);
           return `Failed: ${err instanceof Error ? err.message : "unknown error"}`;
         }
       },
@@ -128,7 +139,17 @@ async function runChat(text: string, messages: BetaMessageParam[], projectId: st
     tools,
     output_config: { effort: "medium" },
   });
+  const started = Date.now();
   const final = await runner.runUntilDone();
+  log.info("chat answered", {
+    projectId,
+    proposalId,
+    ms: Date.now() - started,
+    stopReason: final.stop_reason,
+    turns: runner.params.messages.length - start,
+    inputTokens: final.usage?.input_tokens,
+    outputTokens: final.usage?.output_tokens,
+  });
 
   // The runner's messages hold the whole exchange, including tool calls and results.
   const all = [...runner.params.messages];

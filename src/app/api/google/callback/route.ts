@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { connectGoogle, googleConfigFromEnv } from "@/lib/google";
+import { log } from "@/lib/log";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,7 @@ export async function GET(request: NextRequest) {
     await connectGoogle(cfg, code);
     back.searchParams.set("google", "connected");
   } catch (err) {
-    console.error("google connect failed", { error: err instanceof Error ? err.name : "unknown" });
+    log.error("google connect failed", err);
     back.searchParams.set("google", "failed");
   }
   const res = NextResponse.redirect(back);

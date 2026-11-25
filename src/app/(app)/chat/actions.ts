@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { clearChat, sendChat } from "@/lib/brain/chat";
+import { log } from "@/lib/log";
 
 /** Returns an error to show, or null. Errors are returned, not thrown, so the message reaches the page. */
 export async function sendChatMessage(form: FormData): Promise<string | null> {
@@ -10,7 +11,7 @@ export async function sendChatMessage(form: FormData): Promise<string | null> {
   try {
     await sendChat(text, projectIdOf(form), idOf(form, "proposalId"));
   } catch (err) {
-    console.error("chat failed", { error: err instanceof Error ? err.name : "unknown", status: (err as { status?: number })?.status ?? null });
+    log.error("chat failed", err);
     return "ISA could not answer. Check the Anthropic key on the Connections page and try again.";
   }
   revalidatePath("/", "layout");

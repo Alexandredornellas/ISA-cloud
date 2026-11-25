@@ -43,6 +43,10 @@ npm test                    # uses TEST_DATABASE_URL, default postgres://isa:isa
 
 Create a Railway project with a Postgres database and this repository as a service. Set the variables from `.env.example` on the service, with `DATABASE_URL` referencing the Railway Postgres. `railway.json` runs the migrations before each start.
 
+## Logs
+
+The server writes one JSON line per log entry (`level`, `message`, ids, counts, durations), which Railway shows as structured logs. Useful filters in Railway: `@level:error`, `"call failed"` (an outside service: Jira, Slack, Recall, Google, Confluence, Claude), `"action failed"` (an approved step that did not run), `"event processing failed"`, `"request failed"` (any page, server action or API route). The first lines after a start list which integrations are configured. Set `LOG_LEVEL=debug` to also see every successful outside call and idle worker passes. Logs carry ids and error kinds only, never message, email or transcript text, tokens or email addresses.
+
 ## Layout
 
 | Path | What |
