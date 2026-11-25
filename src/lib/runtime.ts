@@ -20,6 +20,7 @@ export function logConfiguration() {
   const has = (...names: string[]) => names.every((n) => !!process.env[n]);
   log.info("ISA configuration", {
     database: has("DATABASE_URL"),
+    password: has("ISA_PASSWORD"),
     claude: has("ANTHROPIC_API_KEY"),
     recall: has("RECALL_API_KEY"),
     slack: has("SLACK_USER_TOKEN", "SLACK_BOT_TOKEN"),
@@ -29,6 +30,7 @@ export function logConfiguration() {
     logLevel: process.env.LOG_LEVEL ?? "info",
   });
   if (!has("DATABASE_URL")) log.warn("DATABASE_URL is not set: every page and the worker will fail");
+  if (!has("ISA_PASSWORD")) log.warn("ISA_PASSWORD is not set: every page answers 500");
   if (!has("ANTHROPIC_API_KEY")) log.warn("ANTHROPIC_API_KEY is not set: new items will not be sorted and the chat will fail");
 }
 

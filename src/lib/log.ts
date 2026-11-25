@@ -23,7 +23,8 @@ const SECRET_PATTERNS: [RegExp, string][] = [
 
 /** Error text safe to log: secrets and email addresses removed, at most 300 characters. */
 export function scrub(text: string, max = 300): string {
-  let out = text;
+  // Drizzle puts the query's values after "params:": they can be message or email text.
+  let out = text.replace(/\bparams:[\s\S]*$/, "params: [omitted]");
   for (const [pattern, replacement] of SECRET_PATTERNS) out = out.replace(pattern, replacement);
   out = out.replace(/\s+/g, " ").trim();
   return out.length > max ? `${out.slice(0, max)}…` : out;
@@ -46,8 +47,10 @@ export function describeError(err: unknown): Record<string, string | number> {
     digest?: unknown;
     cause?: unknown;
   };
+  // The production build shortens class names, so prefer an explicit `name` ("JiraError").
+  const ctor = e.constructor?.name ?? "";
   const out: Record<string, string | number> = {
-    errorKind: e.constructor?.name && e.constructor.name !== "Error" ? e.constructor.name : e.name,
+    errorKind: e.name && e.name !== "Error" ? e.name : ctor.length > 3 ? ctor : "Error",
     errorMessage: scrub(e.message),
   };
   if (typeof e.status === "number") out.status = e.status;
@@ -58,17 +61,20 @@ export function describeError(err: unknown): Record<string, string | number> {
   if (typeof e.constraint_name === "string") out.constraint = e.constraint_name;
   if (typeof e.digest === "string") out.digest = e.digest;
   // fetch() failures hide the network reason (ECONNRESET, ENOTFOUND, timeout) in `cause`.
-  const cause = e.cause as { code?: unknown; name?: unknown } | undefined;
+  // Drizzle wraps the Postgres error the same way.
+  const cause = e.cause as { code?: unknown; name?: unknown; message?: unknown } | undefined;
   if (cause && typeof cause === "object") {
     if (typeof cause.code === "string") out.causeCode = cause.code;
-    else if (typeof cause.name === "string") out.causeKind = cause.name;
+    if (typeof cause.name === "string" && cause.name !== "Error" && cause.name.length > 3) out.causeKind = cause.name;
+    if (typeof cause.message === "string" && cause.message) out.causeMessage = scrub(cause.message, 160);
   }
   if (e.stack && process.env.LOG_STACKS !== "off") {
     // The first frames only: enough to find the line, without the message (already scrubbed above).
     out.stack = e.stack
       .split("\n")
-      .slice(1, 6)
       .map((l) => l.trim())
+      .filter((l) => l.startsWith("at "))
+      .slice(0, 5)
       .join(" | ");
   }
   return out;

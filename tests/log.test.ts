@@ -33,3 +33,14 @@ describe("log", () => {
     expect(warn).not.toHaveBeenCalled();
   });
 });
+
+describe("log of database errors", () => {
+  it("drops the query's values and keeps the Postgres reason", () => {
+    const pg = Object.assign(new Error("password authentication failed for user isa"), { code: "28P01" });
+    const err = Object.assign(new Error('Failed query: insert into "events" values ($1)\nparams: Ana said the launch slips'), { cause: pg });
+    const d = describeError(err);
+    expect(JSON.stringify(d)).not.toContain("launch slips");
+    expect(d).toMatchObject({ causeCode: "28P01", causeMessage: "password authentication failed for user isa" });
+    expect(String(d.stack)).toMatch(/^at /);
+  });
+});
