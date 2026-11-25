@@ -31,6 +31,7 @@ export function Overview({
   generalCount,
   stats,
   name,
+  next,
 }: {
   projects: ProjectHealth[];
   reminders: ReminderRow[];
@@ -38,6 +39,8 @@ export function Overview({
   generalCount: number;
   stats: MemoryStats;
   name?: string;
+  /** The owner's next meeting, and how many points its brief holds. */
+  next?: { id: string; title: string; when: string; points: number };
 }) {
   const needs = needRows(projects, generalCount);
   const changes = changeRows(feed);
@@ -75,6 +78,16 @@ export function Overview({
             </>
           ) : null}
         </p>
+        {next ? (
+          <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+            <span className="rounded bg-accent-soft px-1.5 py-0.5 text-[11px] font-semibold text-accent">Next meeting</span>
+            <span className="font-medium">{next.title}</span>
+            <span className="text-muted">{next.when}</span>
+            <Link href={`/reminders#meeting-${next.id}`} className="text-accent hover:underline">
+              {next.points ? `Read the brief · ${next.points} point${next.points === 1 ? "" : "s"}` : "Open agenda"} →
+            </Link>
+          </p>
+        ) : null}
       </header>
 
       <section aria-label="Ask your project memory" className="mt-5">

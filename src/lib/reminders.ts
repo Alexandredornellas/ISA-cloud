@@ -62,14 +62,28 @@ export async function setReminderStatus(id: string, status: "open" | "done" | "d
 
 export type ReminderRow = Reminder & { projectName: string | null; source: { source: string; title: string; url: string | null; at: Date } | null };
 
-/** Open reminders (a project's, or all), soonest deadline first, undated last. */
-export async function openReminders(projectId?: string | null): Promise<ReminderRow[]> {
+/** Whether the owner set this aside until a day that has not come yet. */
+export function isSnoozed(r: Pick<Reminder, "snoozedUntil">, now = new Date()): boolean {
+  return !!r.snoozedUntil && dayKey(r.snoozedUntil) > dayKey(now);
+}
+
+/**
+ * Open reminders (a project's, or all), soonest deadline first, undated last. Snoozed ones are
+ * left out until their day comes; pass "only" to get just those.
+ */
+export async function openReminders(projectId?: string | null, snoozed: "hide" | "only" = "hide", now = new Date()): Promise<ReminderRow[]> {
   const rows = await db
     .select()
     .from(schema.reminders)
     .where(and(eq(schema.reminders.status, "open"), projectId ? eq(schema.reminders.projectId, projectId) : undefined))
     .orderBy(sql`${schema.reminders.due} asc nulls last`, asc(schema.reminders.createdAt));
-  return withContext(rows);
+  return withContext(rows.filter((r) => isSnoozed(r, now) === (snoozed === "only")));
+}
+
+/** Set a reminder aside for some days (it comes back on that day), or wake it with null. */
+export async function snoozeReminder(id: string, days: number | null, now = new Date()) {
+  const until = days ? dueFrom(dayKey(new Date(now.getTime() + days * 86400000))) : null;
+  await db.update(schema.reminders).set({ snoozedUntil: until, updatedAt: new Date() }).where(eq(schema.reminders.id, id));
 }
 
 /** Done in the last week, for "what did I already send?". */
@@ -116,10 +130,10 @@ export function bucketOf(r: Pick<Reminder, "due">, now = new Date()): Bucket {
 /** How many of the owner's open reminders are overdue or due today: the number the sidebar shows. */
 export async function dueCount(now = new Date()): Promise<number> {
   const rows = await db
-    .select({ due: schema.reminders.due })
+    .select({ due: schema.reminders.due, snoozedUntil: schema.reminders.snoozedUntil })
     .from(schema.reminders)
     .where(and(eq(schema.reminders.status, "open"), eq(schema.reminders.direction, "mine")));
-  return rows.filter((r) => ["overdue", "today"].includes(bucketOf(r, now))).length;
+  return rows.filter((r) => !isSnoozed(r, now) && ["overdue", "today"].includes(bucketOf(r, now))).length;
 }
 
 /** Plain text of open reminders, for Claude in the chat. */
