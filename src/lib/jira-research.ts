@@ -44,9 +44,32 @@ export function ticketsText(tickets: FoundTicket[], note: TicketNote = () => nul
     .join("\n");
 }
 
+/**
+ * Search each term on its own and take turns between the results, so a broad term ("checkout")
+ * that matches many recent tickets cannot crowd out a narrow one ("Pix") that matches the right ticket.
+ */
+export async function searchEachTerm(jira: JiraSearcher, terms: string[], limit = 10): Promise<FoundTicket[]> {
+  const unique = [...new Set(terms.map((t) => t.trim()).filter(Boolean))].slice(0, 5);
+  if (!unique.length) return [];
+  const perTerm = Math.max(3, Math.ceil(limit / unique.length) + 1);
+  const lists = await Promise.all(unique.map((t) => jira.searchText([t], perTerm).catch(() => [] as FoundTicket[])));
+  const out: FoundTicket[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; out.length < limit && lists.some((l) => i < l.length); i++) {
+    for (const list of lists) {
+      const t = list[i];
+      if (t && !seen.has(t.key) && out.length < limit) {
+        seen.add(t.key);
+        out.push(t);
+      }
+    }
+  }
+  return out;
+}
+
 /** Search Jira for these terms and describe what it holds, for Claude to read. */
 export async function researchJira(jira: JiraSearcher, terms: string[], limit = 10, note?: TicketNote): Promise<string> {
-  const found = await jira.searchText(terms, limit);
+  const found = await searchEachTerm(jira, terms, limit);
   if (!found.length) return `Searched Jira for ${terms.map((t) => `"${t}"`).join(", ")}: no tickets mention them.`;
   return `Jira tickets that mention ${terms.map((t) => `"${t}"`).join(", ")}, most recently updated first:\n${ticketsText(found, note)}`;
 }

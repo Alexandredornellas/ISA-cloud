@@ -135,7 +135,7 @@ export async function activity(projectId: string | null, limit = 40): Promise<Ac
           steps: p.plan.actions.map((a, i): Step => {
             const run = runs.find((r) => r.position === i);
             return {
-              text: describeAction(a),
+              text: describeAction(a, p.plan),
               state: p.status === "pending" || p.status === "dismissed" ? "would" : run?.status === "done" ? "done" : run?.status === "failed" ? "failed" : "pending",
               url: (run?.result as { url?: string } | null)?.url ?? null,
               error: run?.status === "failed" ? run.error : null,

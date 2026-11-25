@@ -97,7 +97,7 @@ export function ProposalCard(p: Props) {
           <ul className="mt-2 space-y-2">
             {p.plan.actions.map((a, i) => (
               <li key={i} className="text-sm">
-                <span className="font-medium">{describeAction(a)}</span>
+                <span className="font-medium">{describeAction(a, p.plan)}</span>
                 {a.type === "slack_message" ? <Quote text={a.text} /> : null}
                 {a.type === "email" ? <Quote text={`${a.subject}\n\n${a.body}`} /> : null}
                 {a.type === "jira_comment" ? <Quote text={a.body} /> : null}

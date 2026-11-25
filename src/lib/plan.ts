@@ -322,10 +322,19 @@ const KIND_LABEL: Record<string, string> = {
   test: "testing task",
 };
 
-export function describeAction(a: Action): string {
+/** How a ticket's epic reads to the owner: a Jira key as is, an epic created in the same plan by its name, never an internal id. */
+function epicLabel(epicRef: string, plan?: Pick<Plan, "actions">): string {
+  if (/^[A-Z][A-Z0-9_]+-\d+$/.test(epicRef)) return ` (under epic ${epicRef})`;
+  const epic = plan?.actions.find((x) => x.type === "jira_create" && x.kind === "epic" && x.requirementRef === epicRef);
+  if (epic && epic.type === "jira_create") return ` (under the epic "${epic.summary}")`;
+  return " (under an epic)";
+}
+
+/** One line for a step. Pass the plan so an epic created in the same plan is named instead of shown by its id. */
+export function describeAction(a: Action, plan?: Pick<Plan, "actions">): string {
   switch (a.type) {
     case "jira_create":
-      return `Create ${KIND_LABEL[a.kind] ?? "ticket"}${a.jiraProject ? ` in ${a.jiraProject}` : ""}: ${a.summary}${a.epicRef && a.kind !== "epic" ? ` (under epic ${a.epicRef})` : ""}`;
+      return `Create ${KIND_LABEL[a.kind] ?? "ticket"}${a.jiraProject ? ` in ${a.jiraProject}` : ""}: ${a.summary}${a.epicRef && a.kind !== "epic" ? epicLabel(a.epicRef, plan) : ""}`;
     case "jira_update":
       return `Update ${a.issueKey ?? a.requirementRef}${a.summary ? `: ${a.summary}` : ""}`;
     case "jira_comment":

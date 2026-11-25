@@ -107,14 +107,14 @@ export function versionChanges(before: Plan, after: Plan): string[] {
   for (const a of after.actions) {
     const old = was.get(stepId(a));
     if (!old) {
-      out.push(`Added: ${describeAction(a)}`);
+      out.push(`Added: ${describeAction(a, after)}`);
       continue;
     }
     if (where(old) !== where(a)) out.push(`${name(a)}: ${where(old)} → ${where(a)}`);
     if (old.type === "jira_create" && a.type === "jira_create" && old.summary !== a.summary) out.push(`Renamed: "${old.summary}" → "${a.summary}"`);
     else if (textOf(old) !== textOf(a)) out.push(`Text changed: ${name(a)}`);
   }
-  for (const a of before.actions) if (!now.has(stepId(a))) out.push(`Removed: ${describeAction(a)}`);
+  for (const a of before.actions) if (!now.has(stepId(a))) out.push(`Removed: ${describeAction(a, before)}`);
   const asked = new Set(before.openQuestions);
   const added = after.openQuestions.filter((q) => !asked.has(q)).length;
   const gone = before.openQuestions.filter((q) => !after.openQuestions.includes(q)).length;

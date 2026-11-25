@@ -289,7 +289,7 @@ describe("Jira research while drafting", () => {
       const [e] = await db.insert(schema.events).values({ source: "manual", externalId: crypto.randomUUID(), title: "MFA", occurredAt: new Date(), content: "We need MFA" }).returning();
       const { llm, calls } = scripted({ matches: [], newProject: { name: "Login", reason: "" }, ignore: false, reason: "", searchTerms: ["MFA", "OTP"] }, plan);
       await processEvent(e.id, llm);
-      expect(searched).toEqual([["MFA", "OTP"]]);
+      expect(searched).toEqual([["MFA"], ["OTP"]]);
       const draft = calls.find((c) => !c.system.includes("decide where one new item belongs"))!;
       expect(draft.context).toContain("SCRUM-8 [Story] SMS codes for sign-in");
       expect(draft.context).toContain("Comment by Bo");
