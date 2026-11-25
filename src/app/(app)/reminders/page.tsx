@@ -1,5 +1,7 @@
+import Link from "next/link";
 import { desc } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { upcomingMeetings } from "@/lib/agenda";
 import { openReminders, recentlyDone } from "@/lib/reminders";
 import { ReminderList } from "@/components/ReminderList";
 import { SubmitButton } from "@/components/SubmitButton";
@@ -9,51 +11,80 @@ export const dynamic = "force-dynamic";
 
 const input = "rounded-lg border border-line bg-bg px-3 py-2 text-sm";
 
-export default async function RemindersPage() {
-  const [open, done, projects] = await Promise.all([
+const FILTERS = [
+  { id: "all", label: "All" },
+  { id: "mine", label: "I owe" },
+  { id: "theirs", label: "Waiting on" },
+] as const;
+
+/** Agenda: what the owner owes, what others owe them, and the meetings ISA will join, by day. */
+export default async function AgendaPage({ searchParams }: { searchParams: Promise<{ show?: string }> }) {
+  const { show } = await searchParams;
+  const filter = show === "mine" || show === "theirs" ? show : "all";
+  const [open, done, projects, meetings] = await Promise.all([
     openReminders(),
     recentlyDone(),
     db.select({ id: schema.projects.id, name: schema.projects.name }).from(schema.projects).orderBy(desc(schema.projects.updatedAt)),
+    upcomingMeetings(),
   ]);
+  const count = { all: open.length, mine: open.filter((r) => r.direction === "mine").length, theirs: open.filter((r) => r.direction === "theirs").length };
+  const shown = filter === "all" ? open : open.filter((r) => r.direction === filter);
+
   return (
-    <div className="mx-auto max-w-5xl px-4 py-7 sm:px-8">
-      <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">To-do &amp; waiting on</h1>
+    <div className="mx-auto max-w-3xl px-4 py-7 sm:px-8">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Agenda</h1>
+        <nav aria-label="Show" className="flex gap-1 text-sm">
+          {FILTERS.map((f) => (
+            <Link
+              key={f.id}
+              href={f.id === "all" ? "/reminders" : `/reminders?show=${f.id}`}
+              aria-current={filter === f.id ? "page" : undefined}
+              className={`rounded-full border px-3 py-1 ${filter === f.id ? "border-ink bg-ink text-bg" : "border-line text-muted hover:text-ink"}`}
+            >
+              {f.label} <span className="tabular-nums">{count[f.id]}</span>
+            </Link>
+          ))}
+        </nav>
+      </div>
       <p className="mt-1 text-sm text-muted">
-        Like a secretary, ISA listens to your meetings, email and Slack and keeps two lists: what people asked you to do (&ldquo;share that doc with me on
-        Friday&rdquo;) and what others promised you (&ldquo;I&apos;ll send the contract today&rdquo;), with who, when and the exact words. Only you see them: ISA
-        never sends anything from here.
+        What you promised (→) and what others promised you (←), picked up from your meetings, email and Slack. Only you see it.
       </p>
 
-      <form action={newReminder} className="mt-5 grid gap-2 rounded-xl border border-line bg-surface p-3 sm:grid-cols-[140px_minmax(0,1fr)_150px_150px_auto]">
-        <input name="text" required aria-label="What to do" placeholder="Remind me to… e.g. Send the API docs" className={`${input} sm:col-span-5`} />
-        <select name="direction" aria-label="Who owes it" className={input} defaultValue="mine">
-          <option value="mine">I owe it to…</option>
-          <option value="theirs">They owe me…</option>
-        </select>
-        <input name="person" aria-label="Person" placeholder="Person (optional)" className={input} />
-        <input name="due" type="date" aria-label="Due date" className={input} />
-        <select name="projectId" aria-label="Project" className={input} defaultValue="">
-          <option value="">No project</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-        <SubmitButton className="bg-accent text-white">Add</SubmitButton>
-      </form>
+      <details className="group mt-4">
+        <summary className="inline-flex cursor-pointer list-none items-center rounded-lg border border-line bg-surface px-3 py-1.5 text-sm hover:bg-hover group-open:hidden">+ Add a reminder</summary>
+        <form action={newReminder} className="grid gap-2 rounded-xl border border-line bg-surface p-3 sm:grid-cols-[140px_minmax(0,1fr)_150px_150px_auto]">
+          <input name="text" required aria-label="What to do" placeholder="Remind me to… e.g. Send the API docs" className={`${input} sm:col-span-5`} />
+          <select name="direction" aria-label="Who owes it" className={input} defaultValue="mine">
+            <option value="mine">I owe it to…</option>
+            <option value="theirs">They owe me…</option>
+          </select>
+          <input name="person" aria-label="Person" placeholder="Person (optional)" className={input} />
+          <input name="due" type="date" aria-label="Due date" className={input} />
+          <select name="projectId" aria-label="Project" className={input} defaultValue="">
+            <option value="">No project</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <SubmitButton className="bg-accent text-white">Add</SubmitButton>
+        </form>
+      </details>
 
-      <div className="mt-7 grid gap-8 lg:grid-cols-2">
-        <section>
-          <h2 className="text-sm font-semibold">To-do · {open.filter((r) => r.direction === "mine").length}</h2>
-          <p className="mb-3 text-xs text-muted">What someone asked you to do, or you promised.</p>
-          <ReminderList reminders={open.filter((r) => r.direction === "mine")} empty="Nothing to do right now. When someone asks you for something, ISA adds it here." />
-        </section>
-        <section>
-          <h2 className="text-sm font-semibold">Waiting on · {open.filter((r) => r.direction === "theirs").length}</h2>
-          <p className="mb-3 text-xs text-muted">What others promised you, so you can follow up.</p>
-          <ReminderList reminders={open.filter((r) => r.direction === "theirs")} empty="Nobody owes you anything right now. When someone promises you something, ISA tracks it here." />
-        </section>
+      <div className="mt-6">
+        <ReminderList
+          reminders={shown}
+          meetings={filter === "all" ? meetings : []}
+          empty={
+            filter === "theirs"
+              ? "Nobody owes you anything right now. When someone promises you something, ISA tracks it here."
+              : filter === "mine"
+                ? "Nothing to do right now. When someone asks you for something, ISA adds it here."
+                : undefined
+          }
+        />
       </div>
 
       {done.length ? (

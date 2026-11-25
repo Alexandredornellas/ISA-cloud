@@ -19,6 +19,8 @@ export type ProjectHealth = {
   owed: number;
   waitingOn: number;
   risks: Risk[];
+  /** Suggestions waiting on the owner: drafts to review, and approved ones where a step failed. */
+  waiting: { id: string; title: string; failed: boolean; steps: number }[];
   lastActivity: { title: string; source: string; at: Date } | null;
   changesThisWeek: number;
 };
@@ -104,6 +106,7 @@ export async function portfolio(now = new Date()): Promise<{ projects: ProjectHe
       owed: rem.filter((r) => r.direction === "mine").length,
       waitingOn: rem.filter((r) => r.direction === "theirs").length,
       risks,
+      waiting: props.filter((x) => x.status === "pending" || x.status === "failed").map((x) => ({ id: x.id, title: x.title, failed: x.status === "failed", steps: x.plan.actions.length })),
       lastActivity: last ? { title: last.title, source: last.source, at: last.at } : null,
       changesThisWeek: projEvents.filter((e) => e.at > weekAgo).length + changes.filter((c) => c.projectId === p.id && c.byIsa === "no").length,
     };
