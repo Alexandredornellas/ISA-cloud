@@ -275,9 +275,12 @@ export class JiraClient {
   }
 
   /** Jira projects this account can see: key and name. */
-  async listProjects(): Promise<{ key: string; name: string }[]> {
-    const page = await this.request<{ values: { key: string; name: string }[] }>("GET", "/project/search?maxResults=100&orderBy=name");
-    return page.values.map((p) => ({ key: p.key, name: p.name }));
+  async listProjects(): Promise<{ key: string; name: string; description?: string }[]> {
+    const page = await this.request<{ values: { key: string; name: string; description?: string }[] }>(
+      "GET",
+      "/project/search?maxResults=100&orderBy=name&expand=description",
+    );
+    return page.values.map((p) => ({ key: p.key, name: p.name, ...(p.description?.trim() ? { description: p.description.trim().slice(0, 200) } : {}) }));
   }
 
   /** Active and future sprints on the project's boards, active first. */

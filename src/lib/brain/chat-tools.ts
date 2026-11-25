@@ -17,7 +17,7 @@ import { addDuty, directory, personLine, updatePerson, upsertPerson, type Direct
 import { claudeStructured } from "@/lib/brain/llm";
 import { decisionList, decisionTrail, trailText, versionLine, type DecisionRow } from "@/lib/trail";
 import { versionAt } from "@/lib/versions";
-import { defaultJiraKey, jiraProjectChoices, setJiraKey } from "@/lib/jira-project";
+import { adoptJiraProject, defaultJiraKey, jiraProjectChoices, setJiraKey } from "@/lib/jira-project";
 import { confluenceConfigured, importPage, searchPages } from "@/lib/confluence";
 import { drawDiagram } from "@/lib/brain/diagram";
 
@@ -149,6 +149,9 @@ export function chatTools(llm: StructuredLLM, jira: JiraReader | null = null, se
               `  Summary: ${p.plan.summary}`,
               ...p.plan.requirementChanges.map((r) => `  Requirement ${r.ref} (${r.op}): ${r.title}`),
               ...p.plan.actions.map((a) => `  Will: ${describeAction(a)}`),
+              ...(p.plan.newJiraProject
+                ? [`  Suggests creating Jira project ${p.plan.newJiraProject.key} "${p.plan.newJiraProject.name}" (${p.plan.newJiraProject.template}); its tickets wait until the owner creates it and gives the key (set_jira_project).`]
+                : []),
               `  From items: ${p.eventIds.join(", ") || "none"}`,
             ].join("\n"),
           )
@@ -394,16 +397,19 @@ export function chatTools(llm: StructuredLLM, jira: JiraReader | null = null, se
     tool({
       name: "set_jira_project",
       description:
-        "Choose which Jira project an ISA project creates new tickets, epics and sprints in, when the owner asks (e.g. 'Checkout tickets go to CHK'). Pass an empty key to go back to the default. This changes ISA's setting only, nothing in Jira. Without a key, lists the Jira projects the owner can see.",
+        "Choose which Jira project an ISA project creates new tickets, epics and sprints in, when the owner asks (e.g. 'Checkout tickets go to CHK'), or when the owner says they created the Jira project a suggestion proposed (e.g. 'NFS8 is created'): the suggestion's waiting tickets then move there. Pass an empty key to go back to the default. This changes ISA's setting and drafts only, nothing in Jira; ISA cannot create Jira projects. Without a key, lists the Jira projects the owner can see.",
       inputSchema: z.object({ projectId: id.nullable(), key: z.string().nullable().describe("A Jira project key like CHK, \"\" for the default, or null to list them") }),
       run: async ({ projectId, key }) => {
         if (key === null || !projectId) {
           const list = await jiraProjectChoices();
           return list.length ? `Jira projects: ${list.map((p) => `${p.key} (${p.name})`).join(", ")}` : "Jira is not connected, or no projects are visible.";
         }
-        const known = await jiraProjectChoices();
         const k = key.trim().toUpperCase();
-        if (k && known.length && !known.some((p) => p.key === k)) return `No Jira project ${k} is visible to ISA. Visible: ${known.map((p) => p.key).join(", ")}.`;
+        if (k) {
+          const r = await adoptJiraProject(k, { projectId });
+          if (!r.ok) return `${r.error} Visible: ${(await jiraProjectChoices()).map((p) => p.key).join(", ") || "none"}.`;
+          return `Saved: new tickets for this project go to ${r.key}.${r.moved ? ` Moved ${r.moved} waiting ${r.moved === 1 ? "step" : "steps"} in the inbox there.` : ""}`;
+        }
         const r = await setJiraKey(projectId, k);
         return r.ok ? `Saved: new tickets for this project go to ${r.key ?? `the default (${defaultJiraKey() ?? "not set"})`}.` : r.error;
       },
