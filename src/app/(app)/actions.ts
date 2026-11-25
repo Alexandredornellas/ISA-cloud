@@ -95,6 +95,13 @@ export async function moveCardToJiraProject(id: string, key: string): Promise<{ 
   return r.ok ? { ok: true, moved: r.moved } : r;
 }
 
+/** "Use this version" on a card: an earlier version becomes the card again. Nothing is sent anywhere. */
+export async function pickCardVersion(form: FormData) {
+  const { restoreCardVersion } = await import("@/lib/card-versions");
+  await restoreCardVersion(String(form.get("id")), Number(form.get("version")));
+  revalidatePath("/", "layout");
+}
+
 /** "Not needed" on a card: a draft is dismissed, a failure is put aside. Either way it leaves the channel. */
 export async function dismissNotification(form: FormData) {
   const id = String(form.get("id"));

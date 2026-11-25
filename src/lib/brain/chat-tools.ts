@@ -399,7 +399,7 @@ export function chatTools(llm: StructuredLLM, jira: JiraReader | null = null, se
     tool({
       name: "set_jira_project",
       description:
-        "Choose which Jira project an ISA project creates new tickets, epics and sprints in, when the owner asks (e.g. 'Checkout tickets go to CHK'), or when the owner says they created the Jira project a suggestion proposed (e.g. 'NFS8 is created'): the suggestion's waiting tickets then move there. Pass an empty key to go back to the default. This changes ISA's setting and drafts only, nothing in Jira; ISA cannot create Jira projects. Without a key, lists the Jira projects the owner can see.",
+        "Choose which Jira project an ISA project creates new tickets, epics and sprints in, when the owner asks (e.g. 'Checkout tickets go to CHK'), or when the owner says they created the Jira project a suggestion proposed (e.g. 'NFS8 is created'): waiting suggestions' tickets that were going to the old project, or waiting for the new one, then move there. Use this, not revise_proposal, to move tickets to another Jira project: it needs no redraft. Pass an empty key to go back to the default. This changes ISA's setting and drafts only, nothing in Jira; ISA cannot create Jira projects. Without a key, lists the Jira projects the owner can see.",
       inputSchema: z.object({ projectId: id.nullable(), key: z.string().nullable().describe("A Jira project key like CHK, \"\" for the default, or null to list them") }),
       run: async ({ projectId, key }) => {
         if (key === null || !projectId) {

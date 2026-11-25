@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { describeAction, type Action } from "@/lib/plan";
 import type { Notification } from "@/lib/channels";
-import { dismissNotification, moveCardToJiraProject, placeNotification, proceedNotification, retryProposal } from "@/app/(app)/actions";
+import { dismissNotification, moveCardToJiraProject, pickCardVersion, placeNotification, proceedNotification, retryProposal } from "@/app/(app)/actions";
 import { SubmitButton } from "@/components/SubmitButton";
 import { QuestionCard } from "@/components/QuestionCard";
 import { SourceMark } from "@/components/SourceMark";
@@ -129,6 +129,8 @@ export function NotificationCard({
             <p className="mt-1 text-sm">{n.plan.summary}</p>
             {failed && n.error ? <p className="mt-2 whitespace-pre-wrap text-sm text-danger">{n.error}</p> : null}
           </section>
+
+          {!failed && n.versions.length > 1 ? <CardVersions id={n.id} versions={n.versions} /> : null}
 
           {n.saved.length ? (
             <section>
@@ -259,7 +261,7 @@ export function NotificationCard({
                   s={suggested}
                   site={n.jira.site}
                   count={projects.filter((p) => p === suggested.key).length}
-                  onMoved={(key) => setProjects((ps) => ps.map((p) => (p === suggested.key ? key : p)))}
+                  onMoved={(key) => setProjects((ps) => ps.map((p) => (p && (p === suggested.key || p === n.jira.fallback) ? key : p)))}
                 />
               ) : null}
 
@@ -351,7 +353,9 @@ export function NotificationCard({
                   {failed ? "Put aside" : "Not needed"}
                 </button>
               </div>
-              <p className="text-xs text-muted">This stays here until you choose. Nothing is sent before you do.</p>
+              <p className="text-xs text-muted">
+                {!failed && n.versions.length > 1 ? `This carries out version ${n.versions.at(-1)!.version}. ` : ""}This stays here until you choose. Nothing is sent before you do.
+              </p>
             </form>
           )}
         </div>
@@ -361,6 +365,94 @@ export function NotificationCard({
 }
 
 const field = "w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm";
+
+const CAUSE: Record<string, string> = {
+  drafted: "First draft",
+  new_items: "New info",
+  correction: "Your correction",
+  jira_project: "Jira project",
+  restored: "Went back",
+};
+
+type Version = Notification["versions"][number];
+
+/** One version: why it changed, what changed, and the items that caused it. */
+function VersionBody({ v }: { v: Version }) {
+  return (
+    <div className="space-y-1.5 text-sm">
+      <p>{v.reason}</p>
+      {v.changes.length ? (
+        <ul className="list-disc space-y-0.5 pl-5 text-muted">
+          {v.changes.map((c, i) => (
+            <li key={i}>{c}</li>
+          ))}
+        </ul>
+      ) : null}
+      {v.sources.length ? (
+        <ul className="space-y-0.5 text-xs text-muted">
+          {v.sources.map((s, i) => (
+            <li key={i}>
+              {SOURCE[s.source]?.label ?? s.source}: {s.title}{" "}
+              {s.url ? (
+                <a href={s.url} target="_blank" rel="noreferrer" className="text-accent underline">
+                  Open original
+                </a>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The card's history: the latest change on top with why it happened, and every earlier version,
+ * which the owner can go back to. Approving carries out the latest version shown here.
+ */
+function CardVersions({ id, versions }: { id: string; versions: Version[] }) {
+  const latest = versions.at(-1)!;
+  const earlier = versions.slice(0, -1).reverse();
+  const previous = versions.at(-2)!;
+  return (
+    <section className="space-y-3 rounded-lg border border-line bg-bg/60 p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className={label}>Why this changed</h3>
+        <span className="rounded-md bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent">
+          Version {latest.version} of {versions.length}
+        </span>
+        <span className="text-xs text-muted">
+          {CAUSE[latest.cause] ?? latest.cause} · {timeAgo(latest.at)}
+        </span>
+      </div>
+      <VersionBody v={latest} />
+      <form action={pickCardVersion} className="flex flex-wrap items-center gap-2">
+        <input type="hidden" name="id" value={id} />
+        <input type="hidden" name="version" value={previous.version} />
+        <SubmitButton className="border border-line bg-surface">Undo this change (back to version {previous.version})</SubmitButton>
+      </form>
+      <details>
+        <summary className="cursor-pointer text-sm font-medium">Earlier versions ({earlier.length})</summary>
+        <ol className="mt-2 space-y-3">
+          {earlier.map((v) => (
+            <li key={v.version} className="space-y-2 rounded-lg border border-line bg-surface p-3">
+              <p className="text-xs text-muted">
+                <span className="font-semibold text-ink">Version {v.version}</span> · {CAUSE[v.cause] ?? v.cause} · {time(v.at)}
+              </p>
+              <p className="text-sm">{v.summary}</p>
+              <VersionBody v={v} />
+              <form action={pickCardVersion}>
+                <input type="hidden" name="id" value={id} />
+                <input type="hidden" name="version" value={v.version} />
+                <SubmitButton className="border border-line bg-surface">Use version {v.version} instead</SubmitButton>
+              </form>
+            </li>
+          ))}
+        </ol>
+      </details>
+    </section>
+  );
+}
 
 /** Which Jira project one new ticket goes to: ISA's choice, changeable. Field p<step>. */
 function JiraProjectPick({

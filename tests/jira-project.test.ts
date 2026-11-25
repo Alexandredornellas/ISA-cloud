@@ -110,9 +110,34 @@ describe("suggesting a new Jira project", () => {
       const notYet = await adoptJiraProject("NFS8", { proposalId: p.id });
       expect(notYet.ok).toBe(false);
       visible = [...visible, { key: "NFS8", name: "Need for Speed 8" }];
-      expect(await adoptJiraProject("nfs8", { proposalId: p.id })).toEqual({ ok: true, key: "NFS8", moved: 2 });
+      expect(await adoptJiraProject("nfs8", { proposalId: p.id })).toEqual({ ok: true, key: "NFS8", moved: 1 });
       const after = await db.query.proposals.findFirst({ where: eq(schema.proposals.id, p.id) });
       expect(after?.plan.newJiraProject).toBeNull();
+      expect(await jiraKeyFor(project.id)).toBe("NFS8");
+    } finally {
+      useJiraSearcher(undefined);
+    }
+  });
+
+  it("moves a waiting card's tickets that went to the old project when the owner sets a new one", async () => {
+    process.env.JIRA_PROJECT_KEY = "SCRUM";
+    const [project] = await db.insert(schema.projects).values({ name: "NFS8" }).returning();
+    const old: Plan = {
+      ...waiting,
+      newJiraProject: null,
+      actions: [
+        { type: "jira_create", requirementRef: "R1", summary: "NFS8", description: "d", kind: "epic", epicRef: null, jiraProject: "" },
+        { type: "jira_create", requirementRef: "R2", summary: "Engine spike", description: "d", kind: "spike", epicRef: "R1", jiraProject: "SCRUM" },
+        { type: "jira_create", requirementRef: "R3", summary: "Pay", description: "d", kind: "story", epicRef: null, jiraProject: "PAY" },
+      ],
+    };
+    const [p] = await db.insert(schema.proposals).values({ kind: "new_project", projectId: project.id, title: "t", plan: old }).returning();
+    useJiraSearcher({ listProjects: async () => [{ key: "SCRUM", name: "ISA" }, { key: "PAY", name: "P" }, { key: "NFS8", name: "N" }] } as unknown as JiraClient);
+    try {
+      expect(await adoptJiraProject("NFS8", { projectId: project.id })).toEqual({ ok: true, key: "NFS8", moved: 1 });
+      const after = await db.query.proposals.findFirst({ where: eq(schema.proposals.id, p.id) });
+      // "" follows the project's setting (now NFS8); PAY was ISA's own pick and stays.
+      expect(after?.plan.actions.map((a) => (a.type === "jira_create" ? a.jiraProject : null))).toEqual(["", "NFS8", "PAY"]);
       expect(await jiraKeyFor(project.id)).toBe("NFS8");
     } finally {
       useJiraSearcher(undefined);

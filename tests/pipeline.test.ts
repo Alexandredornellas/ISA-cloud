@@ -320,6 +320,13 @@ describe("one card per project", () => {
     expect(all[0].eventIds).toEqual([e1.id, e2.id]);
     expect(all[0].plan.summary).toBe("Merged");
     expect(second.calls.at(-1)!.input).toContain("still waiting for the owner's approval");
+    // The card keeps its first draft and says the new Slack item changed it.
+    const versions = await db.select().from(schema.proposalVersions).where(eq(schema.proposalVersions.proposalId, all[0].id));
+    expect(versions.map((v) => [v.version, v.cause, v.eventIds])).toEqual([
+      [1, "drafted", [e1.id]],
+      [2, "new_items", [e2.id]],
+    ]);
+    expect(versions[1].reason).toMatch(/^New info arrived: Slack/);
   });
 });
 
