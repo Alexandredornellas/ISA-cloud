@@ -6,6 +6,7 @@ import { db, schema } from "@/db";
 import { jiraSearcher } from "@/lib/jira-research";
 import type { JiraClient } from "@/lib/jira";
 import type { Plan } from "@/lib/plan";
+import { log } from "@/lib/log";
 
 export const JIRA_KEY = /^[A-Z][A-Z0-9_]{0,19}$/;
 
@@ -93,7 +94,7 @@ export async function jiraProjectChoices(fresh = false): Promise<JiraProjectChoi
     projectCache = { at: Date.now(), list };
     return list;
   } catch (err) {
-    console.error("jira projects failed", { error: err instanceof Error ? err.name : "unknown" });
+    log.error("jira projects failed", err);
     return [];
   }
 }

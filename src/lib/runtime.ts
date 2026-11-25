@@ -4,13 +4,34 @@ import { SlackClient, slackConfigFromEnv } from "@/lib/slack";
 import { liveGoogle } from "@/lib/google";
 import { JiraClient, jiraConfigFromEnv } from "@/lib/jira";
 import { tick, type WorkerDeps } from "@/lib/worker";
+import { log } from "@/lib/log";
 
 function optional<T>(make: () => T): T | null {
   try {
     return make();
   } catch {
+    // Not configured: logged once at startup by logConfiguration.
     return null;
   }
+}
+
+/** Which integrations are set up, as yes/no only, so a missing variable shows in the first log lines. */
+export function logConfiguration() {
+  const has = (...names: string[]) => names.every((n) => !!process.env[n]);
+  log.info("ISA configuration", {
+    database: has("DATABASE_URL"),
+    password: has("ISA_PASSWORD"),
+    claude: has("ANTHROPIC_API_KEY"),
+    recall: has("RECALL_API_KEY"),
+    slack: has("SLACK_USER_TOKEN", "SLACK_BOT_TOKEN"),
+    google: has("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "APP_URL"),
+    jira: has("JIRA_SITE", "JIRA_EMAIL", "JIRA_API_TOKEN", "JIRA_PROJECT_KEY"),
+    worker: process.env.ISA_WORKER !== "off",
+    logLevel: process.env.LOG_LEVEL ?? "info",
+  });
+  if (!has("DATABASE_URL")) log.warn("DATABASE_URL is not set: every page and the worker will fail");
+  if (!has("ISA_PASSWORD")) log.warn("ISA_PASSWORD is not set: every page answers 500");
+  if (!has("ANTHROPIC_API_KEY")) log.warn("ANTHROPIC_API_KEY is not set: new items will not be sorted and the chat will fail");
 }
 
 // One Slack client per process, so its user-name cache survives between passes.
@@ -39,16 +60,27 @@ export function startWorker() {
   g.isaWorker = true;
   let running = false;
   let pass = 0;
+  let skipped = 0;
+  let failuresInARow = 0;
   setInterval(async () => {
-    if (running) return;
+    if (running) {
+      // A pass still running after 10 s: worth seeing if it keeps happening (a hung call).
+      skipped += 1;
+      if (skipped % 6 === 0) log.warn("worker pass still running", { pass, skippedTicks: skipped });
+      return;
+    }
     running = true;
+    skipped = 0;
     try {
       await tick({ ...liveWorkerDeps(), pass: pass++ });
+      if (failuresInARow) log.info("worker recovered", { pass, failuresInARow });
+      failuresInARow = 0;
     } catch (err) {
-      console.error("worker tick failed", { error: err instanceof Error ? err.name : "unknown" });
+      failuresInARow += 1;
+      log.error("worker tick failed", err, { pass, failuresInARow });
     } finally {
       running = false;
     }
   }, INTERVAL_MS);
-  console.log("ISA worker started");
+  log.info("ISA worker started", { intervalMs: INTERVAL_MS });
 }

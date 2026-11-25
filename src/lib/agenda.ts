@@ -4,6 +4,7 @@ import { db, schema } from "@/db";
 import { calendarMeetings, type CalendarMeeting } from "@/lib/calendar";
 import { GoogleClient, googleConfigFromEnv } from "@/lib/google";
 import { bucketOf, dayKey, TIME_ZONE, type ReminderRow } from "@/lib/reminders";
+import { log } from "@/lib/log";
 
 export type Attendee = { name: string | null; email: string | null };
 
@@ -44,7 +45,7 @@ async function fromCalendar(now: Date): Promise<CalendarMeeting[]> {
     calendarCache = { at: now.getTime(), rows };
     return rows;
   } catch (err) {
-    console.error("agenda calendar failed", { error: err instanceof Error ? err.name : "unknown" });
+    log.error("agenda calendar failed", err);
     return calendarCache?.rows ?? [];
   }
 }

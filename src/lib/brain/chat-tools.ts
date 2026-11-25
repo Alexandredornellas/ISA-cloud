@@ -3,6 +3,7 @@
 import { and, asc, desc, eq, ilike, inArray, ne, or } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
+import { log } from "@/lib/log";
 import { describeAction } from "@/lib/plan";
 import { jiraBrowseUrl } from "@/lib/jira";
 import { eventText, projectBlock } from "./context";
@@ -44,6 +45,7 @@ export function chatTools(llm: StructuredLLM, jira: JiraReader | null = null, se
       const gone = r.unlinked ? ` ${r.unlinked} ticket(s) were deleted in Jira and are now unlinked.` : "";
       return `Checked Jira just now: ${r.checked - r.unlinked} of ${r.checked} linked ticket(s) still exist in Jira.${gone}`;
     } catch (err) {
+      log.warn("chat jira check failed", { projectId }, err);
       return `Could not check Jira just now (${err instanceof Error ? err.message.slice(0, 200) : "unknown error"}), so the tickets below may be out of date.`;
     }
   };

@@ -1,6 +1,8 @@
 // Minimal Jira Cloud REST v3 client: create, update, comment, search.
 // Authenticates with an Atlassian account email and API token.
 
+import { pathOnly, traced } from "@/lib/log";
+
 export type JiraConfig = {
   site: string; // yourname.atlassian.net
   email: string;
@@ -16,6 +18,7 @@ export class JiraError extends Error {
     readonly status: number,
   ) {
     super(message);
+    this.name = "JiraError";
   }
 }
 
@@ -105,6 +108,13 @@ export class JiraClient {
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    return traced("jira", `${method} ${pathOnly(path)}`, () => this.send<T>(method, path, body), {
+      // A GET answered 404 is how Jira says a ticket was deleted: a normal answer.
+      expected: (err) => method === "GET" && err instanceof JiraError && err.status === 404,
+    });
+  }
+
+  private async send<T>(method: string, path: string, body?: unknown): Promise<T> {
     const auth = Buffer.from(`${this.cfg.email}:${this.cfg.apiToken}`).toString("base64");
     // Paths under /rest/ (e.g. the agile API) are used as given; the rest are platform API v3.
     const url = path.startsWith("/rest/") ? `https://${this.cfg.site}${path}` : `https://${this.cfg.site}/rest/api/3${path}`;

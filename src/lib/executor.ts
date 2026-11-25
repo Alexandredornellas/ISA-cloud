@@ -7,6 +7,7 @@ import type { Action, Person, Plan, TicketDetails } from "@/lib/plan";
 import { MissingIssueTypeError, type JiraClient } from "@/lib/jira";
 import { recordIsaWrite } from "@/lib/jira-track";
 import { saveTicketFormat, ticketFormats, type TicketKind } from "@/lib/ticket-formats";
+import { log } from "@/lib/log";
 
 // Outside services the executor can act on. Slack and email are wired in later.
 export type Senders = {
@@ -28,6 +29,7 @@ export async function executeProposal(proposalId: string, senders: Senders): Pro
   const proposal = await db.query.proposals.findFirst({ where: eq(schema.proposals.id, proposalId) });
   if (!proposal) throw new Error("Proposal not found");
   if (proposal.status !== "pending") throw new Error(`Proposal is already ${proposal.status}`);
+  log.info("proposal approved, executing", { proposalId, kind: proposal.kind, actions: proposal.plan.actions.length });
 
   await db
     .update(schema.proposals)
@@ -85,6 +87,7 @@ export async function recordMemory(proposalId: string): Promise<void> {
     return existing.has(id) ? { ...c, ref: id, op: c.op === "create" ? ("update" as const) : c.op } : c;
   });
   const applied = await applyRequirementChanges(projectId, { ...proposal.plan, requirementChanges: changes }, { proposalId, eventIds: proposal.eventIds });
+  log.info("memory recorded", { proposalId, projectId, requirementChanges: changes.length, people: proposal.plan.people.length });
   const refs: Record<string, string> = { ...proposal.refs };
   for (const c of proposal.plan.requirementChanges) {
     const row = applied.get(proposal.refs[c.ref] ?? c.ref) ?? applied.get(c.ref);
@@ -108,6 +111,7 @@ export async function retryFailedActions(proposalId: string, senders: Senders): 
   const proposal = await db.query.proposals.findFirst({ where: eq(schema.proposals.id, proposalId) });
   if (!proposal || !proposal.projectId) throw new Error("Proposal not found or never approved");
   if (proposal.status !== "failed") throw new Error(`Proposal is ${proposal.status}, nothing to retry`);
+  log.info("retrying failed actions", { proposalId });
 
   const reqs = await db.query.requirements.findMany({
     where: eq(schema.requirements.projectId, proposal.projectId),
@@ -138,14 +142,18 @@ async function runActions(
   const errors: string[] = [];
   const warnings: string[] = [];
   for (const row of rows) {
+    const type = (row.payload as Action).type;
+    const started = Date.now();
     try {
       const result = await runAction(row.payload as Action, refToRequirement, senders, projectId);
+      log.info("action done", { proposalId, actionId: row.id, type, ms: Date.now() - started, key: typeof result.key === "string" ? result.key : undefined });
       if (Array.isArray(result.warnings)) warnings.push(...(result.warnings as string[]));
       await db
         .update(schema.actions)
         .set({ status: "done", result, error: null, updatedAt: new Date() })
         .where(eq(schema.actions.id, row.id));
     } catch (err) {
+      log.error("action failed", err, { proposalId, actionId: row.id, type, projectId, ms: Date.now() - started });
       const message = err instanceof Error ? err.message : String(err);
       errors.push(message);
       // A missing Jira ticket type becomes a question for the owner instead of a plain failure.
@@ -176,6 +184,7 @@ async function runActions(
     })
     .where(eq(schema.proposals.id, proposalId));
 
+  log.info("proposal executed", { proposalId, projectId, ran: rows.length, failed: stillFailed.length, warnings: warnings.length });
   return { projectId, ok: stillFailed.length === 0, errors: unique };
 }
 
@@ -387,7 +396,7 @@ async function applyDetails(jira: JiraClient, key: string, d: TicketDetails, jir
     try {
       await fn();
     } catch (err) {
-      console.error("jira detail failed", { what, error: err instanceof Error ? err.name : "unknown" });
+      log.warn("jira detail failed", { key, detail: what.startsWith("sprint") ? "sprint" : what.startsWith("story") ? "storyPoints" : "link" }, err);
       warnings.push(`${key}: could not set ${what} (${err instanceof Error ? err.message.slice(0, 160) : "error"})`);
     }
   };

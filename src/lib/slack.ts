@@ -1,5 +1,6 @@
 // Slack Web API client. ISA reads with the owner's user token (channels, private channels and
 // DMs the owner is in) and posts with the bot token, so its messages show as "ISA".
+import { traced } from "@/lib/log";
 
 export type SlackConfig = { userToken: string; botToken: string };
 
@@ -50,6 +51,14 @@ export class SlackClient {
   ) {}
 
   private async call<T>(method: string, params: Record<string, string | number | undefined>, as: "user" | "bot" = "user"): Promise<T> {
+    return traced("slack", method, () => this.send<T>(method, params, as), {
+      ctx: { as },
+      // users.info on an external user is answered "user_not_found": a normal answer.
+      expected: (err) => err instanceof SlackError && err.code === "user_not_found",
+    });
+  }
+
+  private async send<T>(method: string, params: Record<string, string | number | undefined>, as: "user" | "bot"): Promise<T> {
     const body = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) if (v !== undefined) body.set(k, String(v));
     const res = await this.fetchImpl(`https://slack.com/api/${method}`, {
