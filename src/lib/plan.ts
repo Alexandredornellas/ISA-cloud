@@ -20,6 +20,8 @@ export const RequirementChangeSchema = z.object({
   status: z.enum(["proposed", "approved", "changed"]),
   approvedBy: z.string().nullable(),
   reason: z.string().describe("Why this change, citing who said what and where"),
+  /** The epic (feature area) inside the project. Missing or empty: keep the current one. */
+  epic: z.string().optional(),
 });
 export type RequirementChange = z.infer<typeof RequirementChangeSchema>;
 
@@ -131,7 +133,10 @@ const DraftTicketDetails = z.object({
 // Every nullable field below is a plain string in the draft, "" meaning none; fromDraft turns "" back into null.
 const EMPTY = '"" when unknown or none';
 const DraftPerson = PersonSchema.extend({ email: z.string().describe(EMPTY), slackUserId: z.string().describe(EMPTY), role: z.string().describe(EMPTY) });
-const DraftRequirementChange = RequirementChangeSchema.extend({ approvedBy: z.string().describe(EMPTY) });
+const DraftRequirementChange = RequirementChangeSchema.extend({
+  approvedBy: z.string().describe(EMPTY),
+  epic: z.string().describe('The epic inside this project it belongs to, e.g. "Login": an existing epic\'s exact name, or a short new one. "" to keep the current epic.'),
+});
 const DraftCreateNoNull = DraftCreate.extend({
   epicRef: z
     .string()
@@ -180,7 +185,7 @@ export function fromDraft(draft: z.infer<typeof DraftWithDetailsSchema> | z.infe
     ...draft,
     projectName: orNull(draft.projectName),
     people: draft.people.map((p) => ({ ...p, email: orNull(p.email), slackUserId: orNull(p.slackUserId), role: orNull(p.role) })),
-    requirementChanges: draft.requirementChanges.map((c) => ({ ...c, approvedBy: orNull(c.approvedBy) })),
+    requirementChanges: draft.requirementChanges.map((c) => ({ ...c, approvedBy: orNull(c.approvedBy), epic: c.epic?.trim() || undefined })),
     newJiraProject: /^[A-Z][A-Z0-9_]{1,9}$/.test(key) ? { ...suggested, key, name: suggested.name.trim() || key } : null,
     actions: draft.actions.map((raw): Action => {
       let a = nullsBack(raw);

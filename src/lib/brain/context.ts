@@ -41,11 +41,12 @@ export async function projectBlock(projectId: string): Promise<string> {
     `Jira project for new tickets and sprints: ${p.jiraProjectKey || process.env.JIRA_PROJECT_KEY || "(not set)"}`,
     p.slackChannelId ? `Slack channel: ${p.slackChannelId}` : null,
     rules.length ? `Rules from the user:\n${rules.map((r) => `- ${r.text}`).join("\n")}` : null,
+    `Epics (feature areas inside this project): ${epicsOf(reqs).join(", ") || "(none yet)"}`,
     "Requirements:",
     ...(reqs.length
       ? reqs.map(
           (r) =>
-            `- [${r.id}] ${r.title} (status: ${r.status}${r.approvedBy ? `, approved by ${r.approvedBy}` : ""}${
+            `- [${r.id}] ${r.title} (${r.epic ? `epic: ${r.epic}, ` : ""}status: ${r.status}${r.approvedBy ? `, approved by ${r.approvedBy}` : ""}${
               r.jiraIssueKey
                 ? `, Jira ${r.jiraIssueKey}${ticketOf.get(r.jiraIssueKey)?.issueType ? ` [${ticketOf.get(r.jiraIssueKey)!.issueType}]` : ""}${r.jiraStatus ? ` (${r.jiraStatus})` : ""}${ticketOf.get(r.jiraIssueKey)?.epic ? ` under epic ${ticketOf.get(r.jiraIssueKey)!.epic}` : ""} ${jiraBrowseUrl(r.jiraIssueKey)}`
                 : ", no ticket yet"
@@ -55,6 +56,11 @@ export async function projectBlock(projectId: string): Promise<string> {
     "</project>",
   ];
   return lines.filter((l) => l !== null).join("\n");
+}
+
+/** The project's epic names, in the order they first appeared. */
+export function epicsOf(reqs: { epic: string | null }[]): string[] {
+  return [...new Set(reqs.flatMap((r) => (r.epic ? [r.epic] : [])))];
 }
 
 function personText(p: { name: string; email: string | null; slackUserId: string | null; role: string | null }) {

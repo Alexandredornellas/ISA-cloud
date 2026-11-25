@@ -57,7 +57,8 @@ export function NotificationCard({
   const epicAction = actions.find((a) => a.type === "jira_create" && a.kind === "epic") as Extract<Action, { type: "jira_create" }> | undefined;
   const [epicMode, setEpicMode] = useState<"new" | "existing">("new");
   const [epicName, setEpicName] = useState(epicAction?.summary ?? "");
-  const [place, setPlace] = useState(n.places[0]?.projectId ?? "new");
+  // With no best guess, ISA's suggested new project comes first; otherwise its best guess.
+  const [place, setPlace] = useState((n.suggestedProject && !n.places.some((p) => p.best) ? null : n.places[0]?.projectId) ?? "new");
   // The Jira project each new ticket goes to ("" = the project's default), changeable per step.
   const [projects, setProjects] = useState<string[]>(() => actions.map((a) => (a.type === "jira_create" ? (a.jiraProject ?? "") : "")));
   const known = new Set(n.jira.projects.map((p) => p.key));
@@ -194,14 +195,26 @@ export function NotificationCard({
                 <label className={option(place === "new")}>
                   <input type="radio" name="target" value="new" checked={place === "new"} onChange={() => setPlace("new")} className="mt-1 h-4 w-4 accent-[var(--accent)]" />
                   <span className="flex-1 space-y-2 text-sm">
-                    <span className="block font-medium">A new project</span>
+                    <span className="block font-medium">
+                      A new project
+                      {n.suggestedProject ? <span className="ml-2 rounded-md bg-accent-soft px-2 py-0.5 text-xs text-accent">ISA suggests</span> : null}
+                    </span>
                     {place === "new" ? (
-                      <input name="newProjectName" aria-label="New project name" placeholder="Project name" className="w-full rounded-lg border border-line bg-bg px-3 py-2" />
+                      <input
+                        name="newProjectName"
+                        aria-label="New project name"
+                        placeholder="Project name"
+                        defaultValue={n.suggestedProject ?? ""}
+                        className="w-full rounded-lg border border-line bg-bg px-3 py-2"
+                      />
                     ) : null}
                   </span>
                 </label>
               </fieldset>
-              <p className="text-xs text-muted">ISA files it there and drafts its tickets, choosing a new or existing epic. You approve them in that project.</p>
+              <p className="text-xs text-muted">
+                A feature of an existing project goes in that project as an epic. ISA files it there and drafts its tickets, choosing a new or existing epic. You
+                approve them in that project.
+              </p>
               <div className="flex flex-wrap gap-2">
                 <SubmitButton className="bg-accent text-white">File it there</SubmitButton>
                 <button type="button" onClick={onChange} className="rounded-lg border border-line px-4 py-2 text-sm font-medium">

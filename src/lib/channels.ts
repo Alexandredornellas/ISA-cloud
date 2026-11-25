@@ -55,6 +55,8 @@ export type Notification = {
   existingEpics: { key: string; label: string }[];
   /** For a "where does this go?" question: where it could go, ISA's guess first. */
   places: { projectId: string; name: string; best: boolean }[];
+  /** On a "where does this go?" card: the new project ISA would start, when nothing fits. */
+  suggestedProject: string | null;
   question: MissingTypeQuestion | null;
   /** The details the owner's settings say to confirm on each new ticket. */
   asks: Settings;
@@ -204,6 +206,7 @@ export async function notifications(channelId: string | null): Promise<Notificat
             ...projects.filter((p) => p.id !== r.projectId).map((p) => ({ projectId: p.id, name: p.name, best: false })),
           ]
         : [],
+    suggestedProject: r.kind === "clarify" ? r.plan.projectName : null,
     question: questions.find((q) => q.proposalId === r.id) ?? null,
     asks,
     sprints,

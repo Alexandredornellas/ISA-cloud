@@ -106,13 +106,20 @@ export async function processEvent(eventId: string, llm: StructuredLLM): Promise
         unsure = true;
         const rank = { high: 0, medium: 1, low: 2 } as const;
         const best = sort.matches.filter((m) => m.confidence !== "high").sort((a, b) => rank[a.confidence] - rank[b.confidence])[0];
-        proposalIds.push(await askWhichProject(event, best.projectId, best.note));
+        proposalIds.push(await askWhichProject(event, best.projectId, best.note, sort.newProject?.name ?? null));
       }
     }
 
     if (sort.newProject) {
       const name = sort.newProject.name;
-      await attempt("new_project", () => proposeNewProject(event, name, llm, terms));
+      if (projectIds.size === 0) {
+        // The very first project: nothing to fit it into, so start it right away.
+        await attempt("new_project", () => proposeNewProject(event, name, llm, terms));
+      } else if (!unsure) {
+        // Most new work is an epic of a project the owner already has: ask before adding a project.
+        unsure = true;
+        proposalIds.push(await askWhichProject(event, null, sort.newProject.reason || `ISA suggests a new project: ${name}`, name));
+      }
     }
     if (failures.length) {
       // Filed and memory saved; the failed drafts can be retried from Intake.
@@ -350,11 +357,14 @@ async function proposeNewProject(event: EventRow, name: string, llm: StructuredL
   return row.id;
 }
 
-/** "Is this about project X?" Approving it files the event there and drafts the update. */
-async function askWhichProject(event: EventRow, projectId: string, note: string): Promise<string> {
+/**
+ * "Where does this go?" with ISA's best guess (or none), and the new project ISA would suggest, if
+ * any. Answering it files the event there and drafts the update.
+ */
+async function askWhichProject(event: EventRow, projectId: string | null, note: string, newProjectName: string | null = null): Promise<string> {
   const plan: Plan = {
     summary: note,
-    projectName: null,
+    projectName: newProjectName,
     people: [],
     requirementChanges: [],
     actions: [],

@@ -134,6 +134,13 @@
       "when": 1795573551437,
       "tag": "0018_vengeful_jimmy_woo",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1795611479539,
+      "tag": "0019_requirement_epic",
+      "breakpoints": true
     }
   ]
 }
