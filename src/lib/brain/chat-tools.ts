@@ -150,7 +150,7 @@ export function chatTools(llm: StructuredLLM, jira: JiraReader | null = null, se
               `${p.id} [${p.kind}] ${p.title}`,
               `  Summary: ${p.plan.summary}`,
               ...p.plan.requirementChanges.map((r) => `  Requirement ${r.ref} (${r.op}): ${r.title}`),
-              ...p.plan.actions.map((a) => `  Will: ${describeAction(a)}`),
+              ...p.plan.actions.map((a) => `  Will: ${describeAction(a, p.plan)}`),
               ...(p.plan.newJiraProject
                 ? [`  Suggests creating Jira project ${p.plan.newJiraProject.key} "${p.plan.newJiraProject.name}" (${p.plan.newJiraProject.template}); its tickets wait until the owner creates it and gives the key (set_jira_project).`]
                 : []),
@@ -211,7 +211,7 @@ export function chatTools(llm: StructuredLLM, jira: JiraReader | null = null, se
         const proposalId = await redraftProject(projectId, llm, jira);
         if (!proposalId) return "Checked Jira: every requirement still has its ticket, so there is nothing to draft.";
         const p = await db.query.proposals.findFirst({ where: eq(schema.proposals.id, proposalId) });
-        return `Drafted ${proposalId} for the inbox: ${p?.plan.summary ?? ""}\n${(p?.plan.actions ?? []).map((a) => `Will: ${describeAction(a)}`).join("\n")}`;
+        return `Drafted ${proposalId} for the inbox: ${p?.plan.summary ?? ""}\n${(p?.plan.actions ?? []).map((a) => `Will: ${describeAction(a, p?.plan)}`).join("\n")}`;
       },
     }),
     tool({
@@ -221,7 +221,7 @@ export function chatTools(llm: StructuredLLM, jira: JiraReader | null = null, se
       inputSchema: z.object({ proposalId: id, instruction: z.string().describe("The correction, in the owner's words plus any detail you know") }),
       run: async ({ proposalId, instruction }) => {
         const plan = await reviseProposal(proposalId, instruction, llm);
-        return `Revised. ${plan.summary}\n${plan.actions.map((a) => `Will: ${describeAction(a)}`).join("\n")}`;
+        return `Revised. ${plan.summary}\n${plan.actions.map((a) => `Will: ${describeAction(a, plan)}`).join("\n")}`;
       },
     }),
     tool({

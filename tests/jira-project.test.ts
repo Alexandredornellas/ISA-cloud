@@ -170,3 +170,27 @@ describe("suggesting a new Jira project", () => {
     }
   });
 });
+
+describe("searching Jira term by term", () => {
+  it("takes turns between terms so a broad term can't crowd out a narrow one", async () => {
+    const { searchEachTerm } = await import("@/lib/jira-research");
+    const t = (key: string) => ({ key, issueType: null, summary: key, description: "", status: null, assignee: null, sprint: null, epic: null, labels: [], updated: null, url: "", comments: [] });
+    const results: Record<string, ReturnType<typeof t>[]> = {
+      checkout: ["CHK-1", "CHK-2", "CHK-3", "CHK-4", "CHK-5"].map(t),
+      Pix: ["PAY-1", "PAY-2", "CHK-1"].map(t),
+    };
+    const found = await searchEachTerm({ searchText: async ([term]) => results[term] ?? [] }, ["checkout", "Pix"], 4);
+    expect(found.map((f) => f.key)).toEqual(["CHK-1", "PAY-1", "CHK-2", "PAY-2"]);
+  });
+});
+
+describe("naming a ticket's epic", () => {
+  it("names an epic created in the same plan instead of showing its id", async () => {
+    const { describeAction } = await import("@/lib/plan");
+    const epic = { type: "jira_create" as const, requirementRef: "2b4f5ae4-d171", summary: "Pix at checkout", description: "d", kind: "epic" as const, epicRef: null, jiraProject: "CHK" };
+    const story = { ...epic, requirementRef: "R2", summary: "Pay with Pix", kind: "story" as const, epicRef: "2b4f5ae4-d171" };
+    expect(describeAction(story, { actions: [epic, story] })).toBe('Create story in CHK: Pay with Pix (under the epic "Pix at checkout")');
+    expect(describeAction(story)).toBe("Create story in CHK: Pay with Pix (under an epic)");
+    expect(describeAction({ ...story, epicRef: "PAY-1" })).toBe("Create story in CHK: Pay with Pix (under epic PAY-1)");
+  });
+});

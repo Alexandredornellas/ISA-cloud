@@ -286,9 +286,12 @@ async function mergeIntoWaiting(
   const earlier = waiting.eventIds.length
     ? await db.query.events.findMany({ where: inArray(schema.events.id, waiting.eventIds), orderBy: asc(schema.events.occurredAt) })
     : [];
+  // Search Jira again with the new item's topics first, then the earlier ones: new info (e.g. "it's Pix")
+  // can point at existing tickets the first draft never saw.
+  const allTerms = [...new Set([...terms, ...termsOf(earlier)])].slice(0, 5);
   const plan = await draft(llm, {
     system: PROPOSE_SYSTEM,
-    context: await withFormats(`The project:\n${await projectBlock(projectId)}`, terms, projectId),
+    context: await withFormats(`The project:\n${await projectBlock(projectId)}`, allTerms, projectId),
     input: [
       `Items you already drafted from:\n${earlier.map(eventText).join("\n\n") || "(none)"}`,
       `Your draft, still waiting for the owner's approval (nothing in it exists in Jira yet):\n${JSON.stringify(waiting.plan, null, 2)}`,
