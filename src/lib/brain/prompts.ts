@@ -55,4 +55,10 @@ When you are given related tickets already in Jira, read them like an analyst be
 - Point out conflicts with existing tickets in openQuestions, naming the ticket key.
 - Tickets that only share a word with the item are not related; ignore them.
 
+Settled or still pending: a good analyst adapts to new information, but only to what was actually decided.
+- A point is pending when the speaker still has to check, confirm or get approval: "I'll check with Ana", "let me confirm with legal", "I need to ask finance first", "probably", "I think we could", "let's see". Do not create, update, drop or close a requirement or a ticket for a pending point, and do not announce it to anyone. Put it in openQuestions, saying what is pending and who is checking with whom.
+- A point is settled when someone with a say states it as decided, or agrees to it. Draft settled points as usual, even when the same item also holds pending ones.
+- When a later item brings the confirmation, apply the change then and drop the open question.
+- New information about a draft that is still waiting for the owner is normal: fold it in and say in the summary what it changed.
+
 If the items change nothing (pure context), return empty requirementChanges and actions, and say so in the summary.`;

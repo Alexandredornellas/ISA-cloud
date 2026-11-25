@@ -266,7 +266,7 @@ async function mergeIntoWaiting(
   );
   await db
     .update(schema.proposals)
-    .set({ plan: cleaned, eventIds: [...waiting.eventIds, ...fresh.map((e) => e.id)], updatedAt: new Date() })
+    .set({ plan: cleaned, previousPlan: waiting.plan, eventIds: [...waiting.eventIds, ...fresh.map((e) => e.id)], updatedAt: new Date() })
     .where(eq(schema.proposals.id, waiting.id));
   return waiting.id;
 }
@@ -390,6 +390,7 @@ export async function reviseProposal(proposalId: string, instruction: string, ll
     .update(schema.proposals)
     .set({
       plan: cleaned,
+      previousPlan: proposal.plan,
       title: proposal.kind === "new_project" ? `New project: ${cleaned.projectName}` : proposal.title,
       updatedAt: new Date(),
     })

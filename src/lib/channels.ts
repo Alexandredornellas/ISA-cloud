@@ -62,9 +62,38 @@ export type Notification = {
   saved: { title: string; op: string; requirementId: string | null }[];
   /** What each ticket this suggestion updates says in Jira now, by key, to show what changes. */
   current: Record<string, { summary: string; description: string }>;
+  /**
+   * For a draft that new information changed while it waited: per step (by position), the ticket
+   * text as the draft had it before, or "new" for a step the new information added.
+   */
+  redraft: Record<number, { summary: string; description: string } | "new">;
   /** Jira projects a new ticket can go to, and where one goes when it names none. */
   jira: { projects: JiraProjectChoice[]; fallback: string | null; site: string | null };
 };
+
+/** What the latest items changed in a waiting draft, step by step. Empty when it was never redrafted. */
+export function redraftOf(plan: Plan, previous: Plan | null): Notification["redraft"] {
+  if (!previous) return {};
+  const textOf = (a: Plan["actions"][number]) =>
+    a.type === "jira_create" || a.type === "jira_update" ? { summary: a.summary ?? "", description: a.description ?? "" } : null;
+  const idOf = (a: Plan["actions"][number]) => ("requirementRef" in a ? `${a.type}:${a.requirementRef}` : null);
+  const before = new Map<string, { summary: string; description: string }>();
+  for (const a of previous.actions) {
+    const id = idOf(a);
+    const text = textOf(a);
+    if (id && text && !before.has(id)) before.set(id, text);
+  }
+  const out: Notification["redraft"] = {};
+  plan.actions.forEach((a, i) => {
+    const id = idOf(a);
+    const text = textOf(a);
+    if (!id || !text) return;
+    const was = before.get(id);
+    if (!was) out[i] = "new";
+    else if (was.summary !== text.summary || was.description !== text.description) out[i] = was;
+  });
+  return out;
+}
 
 const currentCache = new Map<string, { at: number; summary: string; description: string }>();
 
@@ -165,6 +194,7 @@ export async function notifications(channelId: string | null): Promise<Notificat
     question: questions.find((q) => q.proposalId === r.id) ?? null,
     asks,
     sprints,
+    redraft: r.status === "pending" ? redraftOf(r.plan, r.previousPlan) : {},
     jira: { projects: jiraProjects, fallback: fallbacks.get(r.projectId) ?? null, site: jiraSite },
     current: Object.fromEntries(
       r.plan.actions.flatMap((a) => (a.type === "jira_update" && a.issueKey && current[a.issueKey] ? [[a.issueKey, current[a.issueKey]]] : [])),

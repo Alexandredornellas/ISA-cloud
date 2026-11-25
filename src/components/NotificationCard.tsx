@@ -270,6 +270,7 @@ export function NotificationCard({
                     {actions.map((a, i) => {
                       const detail = stepDetail(a);
                       const isEpic = a === epicAction;
+                      const redraft = failed ? undefined : n.redraft[i];
                       if (isEpic && epicMode === "existing") return null;
                       return (
                         <li key={i} className="rounded-lg border border-line bg-surface">
@@ -285,9 +286,15 @@ export function NotificationCard({
                               />
                             )}
                             <span className="min-w-0 text-sm">
-                              <span className="block font-medium">{isEpic ? `Create epic: ${epicName}` : stepLabel(a)}</span>
+                              <span className="block font-medium">
+                                {isEpic ? `Create epic: ${epicName}` : stepLabel(a)}
+                                {redraft === "new" ? <span className="ml-2 rounded-md bg-ok/15 px-2 py-0.5 text-xs font-medium text-ok">Added by the latest info</span> : null}
+                                {redraft && redraft !== "new" ? <span className="ml-2 rounded-md bg-warn/15 px-2 py-0.5 text-xs font-medium text-warn">Changed by the latest info</span> : null}
+                              </span>
                               {a.type === "jira_update" && a.issueKey && n.current[a.issueKey] ? (
                                 <TicketChange now={n.current[a.issueKey]} summary={a.summary} description={a.description} />
+                              ) : redraft && redraft !== "new" && (a.type === "jira_create" || a.type === "jira_update") ? (
+                                <TicketChange now={redraft} summary={a.summary} description={a.description} heading="What the latest info changed in this draft" same="Same text as before." />
                               ) : detail ? (
                                 <details className="mt-1">
                                   <summary className="cursor-pointer text-xs text-muted">Show text</summary>
@@ -543,16 +550,28 @@ function TicketAsks({ n, a, i, newEpicRef }: { n: Notification; a: Action; i: nu
 }
 
 /** How the ticket reads in Jira now vs after this update: removed in red and struck through, added in green. */
-function TicketChange({ now, summary, description }: { now: { summary: string; description: string }; summary: string | null; description: string | null }) {
+function TicketChange({
+  now,
+  summary,
+  description,
+  heading = "What changes in Jira",
+  same = "Same as the ticket in Jira now.",
+}: {
+  now: { summary: string; description: string };
+  summary: string | null;
+  description: string | null;
+  heading?: string;
+  same?: string;
+}) {
   const title = summary && summary !== now.summary ? diffWords(now.summary, summary) : null;
   const body = description && description !== now.description ? diffWords(now.description, description) : null;
-  if (!title && !body) return <p className="mt-1 text-xs text-muted">Same as the ticket in Jira now.</p>;
+  if (!title && !body) return <p className="mt-1 text-xs text-muted">{same}</p>;
   return (
     <details className="mt-1" open>
       <summary className="cursor-pointer text-xs text-muted">
-        What changes in Jira{" "}
+        {heading}{" "}
         <span className="ml-1 inline-flex gap-2">
-          <span className="rounded bg-danger/10 px-1 text-danger line-through">now</span>
+          <span className="rounded bg-danger/10 px-1 text-danger line-through">{heading === "What changes in Jira" ? "now" : "before"}</span>
           <span className="rounded bg-ok/15 px-1 text-ok">after</span>
         </span>
       </summary>

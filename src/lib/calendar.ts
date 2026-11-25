@@ -2,6 +2,7 @@ import { inArray } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { GoogleClient } from "@/lib/google";
 import { platformOf, type RecallClient } from "@/lib/recall";
+import { botAlreadyFor } from "@/lib/meeting-bots";
 
 const API = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
 const LOOK_AHEAD_MS = 24 * 3_600_000;
@@ -95,6 +96,8 @@ export async function scheduleCalendarBots(google: Pick<GoogleClient, "get" | "s
   for (const w of wanted) {
     if (seen.has(w.key)) continue;
     try {
+      // The owner already sent the bot to this meeting by hand: one bot is enough.
+      if (await botAlreadyFor(w.link, w.start, now)) continue;
       // A start time less than a minute away joins now.
       const joinAt = w.start.getTime() - now > 60_000 ? w.start : null;
       const bot = await recall.createBot(w.link, joinAt);

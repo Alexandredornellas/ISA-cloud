@@ -2,7 +2,8 @@ import { desc } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { GoogleClient } from "@/lib/google";
 import { SendBotForm } from "@/components/SendBotForm";
-import { setAutoJoin } from "../connections/actions";
+import { leaveMeetingAction, setAutoJoin } from "../connections/actions";
+import { SubmitButton } from "@/components/SubmitButton";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +40,15 @@ export default async function MeetingsPage() {
                 {b.error ? ` · ${b.error}` : ""}
               </p>
             </div>
-            <span className={`flex-none rounded px-1.5 py-0.5 text-xs font-medium ${label.style}`}>{label.text}</span>
+            <div className="flex flex-none items-center gap-2">
+              {b.status === "in_call" ? (
+                <form action={leaveMeetingAction}>
+                  <input type="hidden" name="id" value={b.id} />
+                  <SubmitButton className="border border-line !px-2.5 !py-1 !text-xs">Leave the call</SubmitButton>
+                </form>
+              ) : null}
+              <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${label.style}`}>{label.text}</span>
+            </div>
           </li>
         );
       })}
